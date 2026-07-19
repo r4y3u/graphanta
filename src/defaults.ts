@@ -1,6 +1,7 @@
+import { createId } from './lib/geometry';
 import type { GraphantaProject, GraphantaSettings, ToolId } from './types';
 
-export const APP_VERSION = '0.1.0-alpha.1';
+export const APP_VERSION = '0.1.0-alpha.2';
 
 export const ALL_TOOLS: ToolId[] = [
   'select', 'pan', 'pen', 'line', 'arrow', 'rectangle', 'ellipse', 'polygon',
@@ -46,10 +47,10 @@ export function createInitialProject(): GraphantaProject {
     },
     objects: [],
     expressions: [
-      { id: crypto.randomUUID(), label: '式1', source: 'a=4', visible: true },
+      { id: createId('expr'), label: '式1', source: 'a=4', visible: true },
     ],
     variables: [
-      { id: crypto.randomUUID(), name: 'a', value: 4, min: 1, max: 12, step: 1 },
+      { id: createId('var'), name: 'a', value: 4, min: 1, max: 12, step: 1 },
     ],
   };
 }

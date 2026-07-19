@@ -1,9 +1,17 @@
 import type { GraphicObject, Point } from '../types';
 
-export function createId(prefix = 'obj'): string {
-  return `${prefix}-${crypto.randomUUID()}`;
+function fallbackRandomId(): string {
+  const randomPart = Math.random().toString(36).slice(2, 12);
+  const timePart = Date.now().toString(36);
+  return `${timePart}-${randomPart}`;
 }
 
+export function createId(prefix = 'obj'): string {
+  const uuid = typeof globalThis.crypto?.randomUUID === 'function'
+    ? globalThis.crypto.randomUUID()
+    : fallbackRandomId();
+  return `${prefix}-${uuid}`;
+}
 export function snapPoint(point: Point, gridSize: number, enabled: boolean): Point {
   if (!enabled) return point;
   return {

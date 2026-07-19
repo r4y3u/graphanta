@@ -1,11 +1,11 @@
 {
   "name": "graphanta",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.1.0-alpha.2",
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "tsc -b && vite build",
+    "dev": "vite --open /app.html",
+    "build": "tsc -b && vite build && node scripts/build-standalone.mjs",
     "preview": "vite preview"
   },
   "dependencies": {
