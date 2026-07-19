@@ -590,6 +590,10 @@ function App() {
           y={bounds.y - pad}
           width={Math.max(1, bounds.width + pad * 2)}
           height={Math.max(1, bounds.height + pad * 2)}
+          fill="none"
+          stroke="#6455ea"
+          strokeWidth={1.6}
+          strokeDasharray="7 5"
           className="selection-outline"
           vectorEffect="non-scaling-stroke"
         />
@@ -709,44 +713,50 @@ function App() {
   return (
     <div className={`app-shell ${presentation ? 'presentation-mode' : ''}`}>
       <header className="menu-bar">
-        <div className="brand" onDoubleClick={() => setModal({ kind: 'about' })}>
-          <span className="brand-mark" aria-hidden="true">G</span>
-          <div>
-            <strong>Graphanta</strong>
-            <span>visual mathematics</span>
-          </div>
+        <button type="button" className="app-mark" aria-label="Graphantaについて" onClick={() => setModal({ kind: 'about' })}>
+          <svg viewBox="0 0 40 40" aria-hidden="true">
+            <path d="M8 31V9M8 31H33" />
+            <path d="M11 27C15 24 17 14 22 18C26 21 27 10 32 9" />
+            <circle cx="22" cy="18" r="2.2" />
+          </svg>
+        </button>
+
+        <nav className="menu-actions" aria-label="メニュー">
+          <button type="button" onClick={newProject}><span>新規</span></button>
+          <button type="button" onClick={() => projectInputRef.current?.click()}><Icon name="open" size={19} /><span>読込</span></button>
+          <button type="button" onClick={saveProject}><Icon name="save" size={19} /><span>保存</span></button>
+          <span className="menu-divider" />
+          <button type="button" aria-label="元に戻す" title="元に戻す" onClick={undo} disabled={undoStack.current.length === 0} data-history={historyRevision}><Icon name="undo" size={19} /></button>
+          <button type="button" aria-label="やり直す" title="やり直す" onClick={redo} disabled={redoStack.current.length === 0} data-history={historyRevision}><Icon name="redo" size={19} /></button>
+          <span className="menu-divider" />
+          <button type="button" onClick={screenshot}><Icon name="camera" size={19} /><span>スクショ</span></button>
+          <button type="button" onClick={togglePresentation}><Icon name="fullscreen" size={19} /><span>発表</span></button>
+          <button type="button" aria-label="設定" title="設定" onClick={() => setModal({ kind: 'settings' })}><Icon name="settings" size={19} /></button>
+        </nav>
+
+        <div className="view-control" aria-label="表示倍率">
+          <button type="button" onClick={() => setView({ x: 0, y: 0, zoom: 1 })}>全体表示</button>
+          <output>{Math.round(view.zoom * 100)}%</output>
         </div>
+
         <input
           className="project-title"
           value={project.title}
           aria-label="プロジェクト名"
+          title="プロジェクト名"
           onChange={(event) => setProject((current) => ({ ...current, title: event.target.value }))}
         />
-        <nav className="menu-actions" aria-label="メニュー">
-          <button type="button" onClick={newProject}>新規</button>
-          <button type="button" onClick={() => projectInputRef.current?.click()}><Icon name="open" size={19} />読込</button>
-          <button type="button" onClick={saveProject}><Icon name="save" size={19} />保存</button>
-          <span className="menu-divider" />
-          <button type="button" onClick={undo} disabled={undoStack.current.length === 0} data-history={historyRevision}><Icon name="undo" size={19} /></button>
-          <button type="button" onClick={redo} disabled={redoStack.current.length === 0} data-history={historyRevision}><Icon name="redo" size={19} /></button>
-          <span className="menu-divider" />
-          <button type="button" onClick={screenshot}><Icon name="camera" size={19} />スクショ</button>
-          <button type="button" onClick={togglePresentation}><Icon name="fullscreen" size={19} />発表</button>
-          <button type="button" onClick={() => setModal({ kind: 'settings' })}><Icon name="settings" size={19} /></button>
-        </nav>
+
+        <button type="button" className="wordmark" onClick={() => setModal({ kind: 'about' })}>
+          <strong>Graphanta</strong>
+          <span>visual mathematics</span>
+        </button>
       </header>
 
-      <main className={`workspace toolbar-${settings.toolbarSide}`}>
+      <main className={`workspace toolbar-${settings.toolbarSide} ${panelCollapsed.tweak && panelCollapsed.expressions ? 'panels-collapsed' : ''}`}>
         {settings.toolbarSide === 'left' && <Toolbar tools={visibleTools} activeTool={activeTool} onChange={(tool) => { setActiveTool(tool); setPolygonPoints([]); }} />}
 
         <section className="plot-shell">
-          <div className="plot-toolbar">
-            <span>{TOOL_LABELS[activeTool]}</span>
-            <div>
-              <button type="button" onClick={() => setView({ x: 0, y: 0, zoom: 1 })}>全体表示</button>
-              <output>{Math.round(view.zoom * 100)}%</output>
-            </div>
-          </div>
           <div className="plot-viewport">
             <svg
               ref={svgRef}
@@ -800,7 +810,7 @@ function App() {
             </svg>
           </div>
           <footer className="status-bar">
-            <span>{status}</span>
+            <span><strong>{TOOL_LABELS[activeTool]}</strong>　{status}</span>
             <span>{project.objects.length}要素・オフライン保存</span>
           </footer>
         </section>
@@ -808,9 +818,9 @@ function App() {
         {settings.toolbarSide === 'right' && <Toolbar tools={visibleTools} activeTool={activeTool} onChange={(tool) => { setActiveTool(tool); setPolygonPoints([]); }} />}
 
         <aside className="side-panels">
-          <section className={`side-panel ${panelCollapsed.tweak ? 'collapsed' : ''}`}>
-            <button type="button" className="panel-heading" onClick={() => setPanelCollapsed((current) => ({ ...current, tweak: !current.tweak }))}>
-              <span>ツウィーク</span><Icon name="chevron" size={18} />
+          <section className={`side-panel tweak-panel ${panelCollapsed.tweak ? 'collapsed' : ''}`}>
+            <button type="button" className="panel-heading" aria-expanded={!panelCollapsed.tweak} title={panelCollapsed.tweak ? 'ツウィークを開く' : 'ツウィークを畳む'} onClick={() => setPanelCollapsed((current) => ({ ...current, tweak: !current.tweak }))}>
+              <span className="panel-title">ツウィーク</span><span className="panel-short">T</span><Icon name="chevron" size={18} />
             </button>
             {!panelCollapsed.tweak && (
               <div className="panel-content tweak-content">
@@ -829,8 +839,8 @@ function App() {
           </section>
 
           <section className={`side-panel expression-panel ${panelCollapsed.expressions ? 'collapsed' : ''}`}>
-            <button type="button" className="panel-heading" onClick={() => setPanelCollapsed((current) => ({ ...current, expressions: !current.expressions }))}>
-              <span>f 数式・変数</span><Icon name="chevron" size={18} />
+            <button type="button" className="panel-heading" aria-expanded={!panelCollapsed.expressions} title={panelCollapsed.expressions ? '数式・変数を開く' : '数式・変数を畳む'} onClick={() => setPanelCollapsed((current) => ({ ...current, expressions: !current.expressions }))}>
+              <span className="panel-title">f 数式・変数</span><span className="panel-short">f</span><Icon name="chevron" size={18} />
             </button>
             {!panelCollapsed.expressions && (
               <div className="panel-content">
