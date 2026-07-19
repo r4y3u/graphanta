@@ -1,0 +1,68 @@
+import type { GraphantaProject, GraphantaSettings, ToolId } from './types';
+
+export const APP_VERSION = '0.1.0-alpha.1';
+
+export const ALL_TOOLS: ToolId[] = [
+  'select', 'pan', 'pen', 'line', 'arrow', 'rectangle', 'ellipse', 'polygon',
+  'text', 'math', 'array', 'segment', 'function',
+];
+
+export const BASIC_TOOLS: ToolId[] = [
+  'select', 'pan', 'pen', 'line', 'arrow', 'rectangle', 'ellipse',
+  'text', 'math', 'array', 'segment', 'function',
+];
+
+export const TOOL_LABELS: Record<ToolId, string> = {
+  select: '選択・移動',
+  pan: '表示位置を移動',
+  pen: 'フリーハンド',
+  line: '線分',
+  arrow: '矢印',
+  rectangle: '四角形',
+  ellipse: '円・だ円',
+  polygon: '多角形',
+  text: '文字',
+  math: '数式',
+  array: 'アレー図',
+  segment: '線分図・数直線',
+  function: '関数グラフ（v3）',
+};
+
+export function createInitialProject(): GraphantaProject {
+  return {
+    format: 'graphanta-project',
+    schemaVersion: 1,
+    appVersion: APP_VERSION,
+    title: '無題のプロジェクト',
+    updatedAt: new Date().toISOString(),
+    canvas: {
+      width: 1280,
+      height: 800,
+      background: '#ffffff',
+      gridVisible: true,
+      gridSize: 20,
+      snapGrid: true,
+      snapPoints: false,
+    },
+    objects: [],
+    expressions: [
+      { id: crypto.randomUUID(), label: '式1', source: 'a=4', visible: true },
+    ],
+    variables: [
+      { id: crypto.randomUUID(), name: 'a', value: 4, min: 1, max: 12, step: 1 },
+    ],
+  };
+}
+
+export function createDefaultSettings(): GraphantaSettings {
+  return {
+    format: 'graphanta-settings',
+    schemaVersion: 1,
+    toolbarSide: 'right',
+    visibleTools: BASIC_TOOLS,
+    defaultStroke: '#25314d',
+    defaultFill: 'transparent',
+    defaultStrokeWidth: 2.5,
+    autoRestore: true,
+  };
+}
