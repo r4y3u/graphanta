@@ -472,3 +472,114 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   .panel-content { padding: 9px; }
   .field { grid-template-columns: 70px minmax(0,1fr); }
 }
+
+/* alpha.4 grouped tools and parameter editors */
+.cursor-zoom { cursor: zoom-in; }
+.toolbar { overflow: visible; }
+.tool-group { position: relative; flex: 0 0 auto; }
+.tool-group-main { overflow: visible; }
+.group-caret {
+  position: absolute;
+  right: 2px;
+  bottom: 1px;
+  font-size: 13px;
+  font-weight: 900;
+  line-height: 1;
+  opacity: .72;
+}
+.tool-flyout {
+  position: absolute;
+  z-index: 50;
+  top: 0;
+  display: grid;
+  gap: 4px;
+  min-width: 142px;
+  padding: 6px;
+  border: 1px solid #d7dceb;
+  border-radius: 12px;
+  background: rgba(255,255,255,.98);
+  box-shadow: 0 15px 40px rgba(37,42,72,.22);
+  backdrop-filter: blur(14px);
+}
+.flyout-right { left: calc(100% + 8px); }
+.flyout-left { right: calc(100% + 8px); }
+.tool-flyout-button {
+  display: grid;
+  grid-template-columns: 28px minmax(0,1fr);
+  align-items: center;
+  gap: 8px;
+  min-height: 38px;
+  padding: 4px 9px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  color: #424b63;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+  font-size: 11px;
+  font-weight: 700;
+}
+.tool-flyout-button:hover { color: var(--primary-strong); border-color: #ddd8ff; background: #f3f1ff; }
+.tool-flyout-button.is-active { color: #fff; background: linear-gradient(145deg, #5749e2, #6b57ef); }
+
+.display-mode, .measure-mode {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0,1fr));
+  gap: 6px;
+  margin: 0 0 13px;
+}
+.display-mode button, .measure-mode button {
+  min-width: 0;
+  min-height: 58px;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 3px;
+  padding: 5px 3px;
+  border: 1px solid #d9deea;
+  border-radius: 9px;
+  color: #596176;
+  background: #fff;
+  cursor: pointer;
+  font-size: 10px;
+  font-weight: 700;
+}
+.display-mode button:hover, .measure-mode button:hover { color: var(--primary-strong); border-color: #beb7f3; background: #f7f5ff; }
+.display-mode button.is-active, .measure-mode button.is-active { color: #fff; border-color: transparent; background: linear-gradient(145deg, #5749e2, #6b57ef); box-shadow: 0 5px 13px rgba(86,72,223,.2); }
+
+.preset-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: -2px 0 12px;
+  padding: 8px 9px;
+  border-radius: 8px;
+  color: #4438b8;
+  background: var(--primary-soft);
+}
+.preset-header strong { font-size: 12px; }
+.preset-header span { color: #777194; font-size: 9px; font-weight: 700; }
+
+.range-number { width: 100%; min-width: 0; display: grid !important; grid-template-columns: minmax(45px,1fr) 58px auto; align-items: center; gap: 5px !important; }
+.range-number > input[type="range"] { width: 100%; min-width: 0; }
+.range-number > input[type="text"] { min-width: 0; padding: 5px 6px !important; text-align: right; font-variant-numeric: tabular-nums; }
+.range-number > span { color: #6c7488; font-size: 10px; }
+.range-direct { width: 100%; min-width: 0; display: grid !important; grid-template-columns: minmax(50px,1fr) 62px auto; align-items: center; gap: 5px !important; }
+.range-direct > input[type="text"] { min-width: 0; padding: 5px 6px !important; text-align: right; }
+.range-direct > span { color: #6c7488; font-size: 9px; }
+
+.point-input { width: 100%; min-width: 0; display: grid !important; grid-template-columns: 1fr 1fr; gap: 5px !important; }
+.point-input label { min-width: 0; display: grid; grid-template-columns: 12px minmax(0,1fr); align-items: center; gap: 3px; color: #71788b; font-size: 10px; }
+.point-input input { min-width: 0; padding: 6px !important; text-align: right; }
+
+.field input.is-invalid { border-color: #ce3d59 !important; background: #fff5f7 !important; box-shadow: 0 0 0 2px rgba(206,61,89,.08); }
+.field-error { margin: -5px 0 10px 92px; color: #bd344d; font-size: 10px; line-height: 1.45; }
+.division-heading { display: flex; align-items: center; justify-content: space-between; margin: 13px 0 8px; padding-top: 11px; border-top: 1px solid #e2e5ef; color: #343d54; font-size: 12px; font-weight: 800; }
+.division-heading button { width: 28px; height: 27px; border: 1px solid #d9deea; border-radius: 7px; background: white; cursor: pointer; }
+.division-heading button:hover { color: var(--primary-strong); border-color: #bdb6f3; background: #f7f5ff; }
+
+@media (max-width: 850px), (max-aspect-ratio: 4 / 5) {
+  .tool-flyout { min-width: 132px; }
+  .flyout-right { left: calc(100% + 5px); }
+  .flyout-left { right: calc(100% + 5px); }
+}

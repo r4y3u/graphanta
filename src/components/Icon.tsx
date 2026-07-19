@@ -1,7 +1,7 @@
 import type { ToolId } from '../types';
 
 interface IconProps {
-  name: ToolId | 'undo' | 'redo' | 'save' | 'open' | 'camera' | 'settings' | 'fullscreen' | 'delete' | 'duplicate' | 'chevron';
+  name: ToolId | 'undo' | 'redo' | 'save' | 'open' | 'camera' | 'settings' | 'fullscreen' | 'delete' | 'duplicate' | 'chevron' | 'blank' | 'grid' | 'axes' | 'numberLine' | 'tape' | 'measureSegment';
   size?: number;
 }
 
@@ -9,6 +9,7 @@ export function Icon({ name, size = 22 }: IconProps) {
   const common = { width: size, height: size, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 1.8, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const, 'aria-hidden': true };
   switch (name) {
     case 'select': return <svg {...common}><path d="M5 3l12 8-6 2-2 6z"/><path d="M13 13l5 5"/></svg>;
+    case 'zoom': return <svg {...common}><circle cx="10" cy="10" r="6"/><path d="M14.5 14.5L21 21M7 10h6M10 7v6"/></svg>;
     case 'pan': return <svg {...common}><path d="M8 11V6a2 2 0 014 0v4"/><path d="M12 10V5a2 2 0 014 0v6"/><path d="M16 11V8a2 2 0 014 0v6c0 5-3 8-8 8-3 0-5-1-7-4l-2-3a2 2 0 013-3l2 2V8a2 2 0 014 0v3"/></svg>;
     case 'pen': return <svg {...common}><path d="M4 20c3-6 5-9 8-12l4-4a2 2 0 013 3l-4 4c-3 3-6 5-12 8z"/><path d="M13 7l4 4"/></svg>;
     case 'line': return <svg {...common}><path d="M4 19L20 5"/><circle cx="4" cy="19" r="1.5"/><circle cx="20" cy="5" r="1.5"/></svg>;
@@ -31,5 +32,11 @@ export function Icon({ name, size = 22 }: IconProps) {
     case 'delete': return <svg {...common}><path d="M4 7h16M9 7V4h6v3M7 7l1 13h8l1-13M10 11v5M14 11v5"/></svg>;
     case 'duplicate': return <svg {...common}><rect x="8" y="8" width="11" height="11" rx="1"/><path d="M16 8V5H5v11h3"/></svg>;
     case 'chevron': return <svg {...common}><path d="M8 10l4 4 4-4"/></svg>;
+    case 'blank': return <svg {...common}><rect x="4" y="4" width="16" height="16" rx="2"/></svg>;
+    case 'grid': return <svg {...common}><path d="M4 4h16v16H4zM9.33 4v16M14.67 4v16M4 9.33h16M4 14.67h16"/></svg>;
+    case 'axes': return <svg {...common}><path d="M3 12h18M12 3v18M18 9l3 3-3 3M9 6l3-3 3 3"/></svg>;
+    case 'numberLine': return <svg {...common}><path d="M3 13h18M5 9v8M10 10v6M15 10v6M20 9v8"/><path d="M18 11l3 2-3 2"/></svg>;
+    case 'tape': return <svg {...common}><rect x="3" y="7" width="18" height="10" rx="1"/><path d="M11 7v10M16 7v10"/></svg>;
+    case 'measureSegment': return <svg {...common}><path d="M3 12h18M3 8v8M12 9v6M21 8v8"/></svg>;
   }
 }

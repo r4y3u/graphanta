@@ -1,21 +1,22 @@
 import { createId } from './lib/geometry';
 import type { GraphantaProject, GraphantaSettings, ToolId } from './types';
 
-export const APP_VERSION = '0.1.0-alpha.3';
+export const APP_VERSION = '0.1.0-alpha.4';
 
 export const ALL_TOOLS: ToolId[] = [
-  'select', 'pan', 'pen', 'line', 'arrow', 'rectangle', 'ellipse', 'polygon',
+  'select', 'pan', 'zoom', 'pen', 'line', 'arrow', 'rectangle', 'ellipse', 'polygon',
   'text', 'math', 'array', 'segment', 'function',
 ];
 
 export const BASIC_TOOLS: ToolId[] = [
-  'select', 'pan', 'pen', 'line', 'arrow', 'rectangle', 'ellipse',
+  'select', 'pan', 'zoom', 'pen', 'line', 'arrow', 'rectangle', 'ellipse',
   'text', 'math', 'array', 'segment', 'function',
 ];
 
 export const TOOL_LABELS: Record<ToolId, string> = {
-  select: '選択・移動',
-  pan: '表示位置を移動',
+  select: '選択',
+  pan: 'スクロール',
+  zoom: 'ズーム',
   pen: 'フリーハンド',
   line: '線分',
   arrow: '矢印',
@@ -25,7 +26,7 @@ export const TOOL_LABELS: Record<ToolId, string> = {
   text: '文字',
   math: '数式',
   array: 'アレー図',
-  segment: '線分図・数直線',
+  segment: '目盛り',
   function: '関数グラフ（v3）',
 };
 
@@ -41,7 +42,11 @@ export function createInitialProject(): GraphantaProject {
       height: 800,
       background: '#ffffff',
       gridVisible: true,
+      axesVisible: false,
       gridSize: 20,
+      coordinatePrecision: 10,
+      tickInterval: 0,
+      labelInterval: 0,
       snapGrid: true,
       snapPoints: false,
     },

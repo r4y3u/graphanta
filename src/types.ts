@@ -1,6 +1,7 @@
 export type ToolId =
   | 'select'
   | 'pan'
+  | 'zoom'
   | 'pen'
   | 'line'
   | 'arrow'
@@ -34,7 +35,7 @@ export interface ExpressionDef {
   visible: boolean;
 }
 
-interface BaseObject {
+export interface BaseObject {
   id: string;
   stroke: string;
   fill: string;
@@ -47,12 +48,14 @@ interface BaseObject {
 export interface PenObject extends BaseObject {
   type: 'pen';
   points: Point[];
+  rotation?: number;
 }
 
 export interface LineObject extends BaseObject {
   type: 'line' | 'arrow';
   start: Point;
   end: Point;
+  arrowSize?: number;
 }
 
 export interface RectangleObject extends BaseObject {
@@ -62,6 +65,7 @@ export interface RectangleObject extends BaseObject {
   width: number;
   height: number;
   radius: number;
+  rotation?: number;
 }
 
 export interface EllipseObject extends BaseObject {
@@ -70,11 +74,13 @@ export interface EllipseObject extends BaseObject {
   cy: number;
   rx: number;
   ry: number;
+  rotation?: number;
 }
 
 export interface PolygonObject extends BaseObject {
   type: 'polygon';
   points: Point[];
+  rotation?: number;
 }
 
 export interface TextObject extends BaseObject {
@@ -105,16 +111,26 @@ export interface ArrayObject extends BaseObject {
   colsExpr: string;
   symbol: 'circle' | 'square' | 'dot' | 'cross';
   symbolSize: number;
+  rotation?: number;
 }
+
+export type MeasureMode = 'numberLine' | 'tape' | 'segment';
 
 export interface SegmentObject extends BaseObject {
   type: 'segment';
   start: Point;
   end: Point;
-  ticksExpr: string;
-  startValueExpr: string;
-  endValueExpr: string;
-  showValues: boolean;
+  mode: MeasureMode;
+  tickIntervalExpr: string;
+  labelIntervalExpr: string;
+  maxValueExpr: string;
+  divisionPercents: number[];
+  rotation?: number;
+  /** v0.1.0-alpha.3 compatibility */
+  ticksExpr?: string;
+  startValueExpr?: string;
+  endValueExpr?: string;
+  showValues?: boolean;
 }
 
 export type GraphicObject =
@@ -133,7 +149,11 @@ export interface CanvasSettings {
   height: number;
   background: string;
   gridVisible: boolean;
+  axesVisible: boolean;
   gridSize: number;
+  coordinatePrecision: number;
+  tickInterval: number;
+  labelInterval: number;
   snapGrid: boolean;
   snapPoints: boolean;
 }
