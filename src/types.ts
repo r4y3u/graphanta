@@ -35,6 +35,8 @@ export interface ExpressionDef {
   visible: boolean;
 }
 
+export type GeometryBindings = Record<string, string>;
+
 export interface BaseObject {
   id: string;
   stroke: string;
@@ -43,6 +45,10 @@ export interface BaseObject {
   opacity: number;
   locked?: boolean;
   hidden?: boolean;
+  /** Optional persistent pivot used by rotated freeform objects. */
+  rotationCenter?: Point;
+  /** Coordinate/geometry expressions evaluated against project variables. */
+  bindings?: GeometryBindings;
 }
 
 export interface PenObject extends BaseObject {
@@ -75,6 +81,7 @@ export interface EllipseObject extends BaseObject {
   rx: number;
   ry: number;
   rotation?: number;
+  majorAxis?: 'x' | 'y';
 }
 
 export interface PolygonObject extends BaseObject {
@@ -125,6 +132,7 @@ export interface SegmentObject extends BaseObject {
   labelIntervalExpr: string;
   maxValueExpr: string;
   divisionPercents: number[];
+  showMaxValue: boolean;
   rotation?: number;
   /** v0.1.0-alpha.3 compatibility */
   ticksExpr?: string;

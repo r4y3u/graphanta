@@ -12,7 +12,7 @@ import { ALL_TOOLS, APP_VERSION, TOOL_LABELS, createDefaultSettings, createIniti
 import { Icon } from './components/Icon';
 import { Modal } from './components/Modal';
 import { Toolbar } from './components/Toolbar';
-import { createId, normalizeRect, pointsToPath, translateObject } from './lib/geometry';
+import { createId, distance, normalizeRect, pointsToPath, translateObject } from './lib/geometry';
 import { prettyMath, resolveNumber } from './lib/math';
 import { openSvgAsPng } from './lib/screenshot';
 import {
@@ -36,6 +36,7 @@ import type {
   MeasureMode,
   PenObject,
   Point,
+  PolygonObject,
   RectangleObject,
   SegmentObject,
   TextObject,
@@ -56,12 +57,14 @@ interface StylePreset {
   opacity: number;
 }
 
+interface ExpressionPoint { x: string; y: string; }
+
 interface ToolPresets {
   pen: StylePreset;
-  line: StylePreset & { start: Point; end: Point };
-  arrow: StylePreset & { start: Point; end: Point; arrowSize: number };
+  line: StylePreset & { start: ExpressionPoint; end: ExpressionPoint };
+  arrow: StylePreset & { start: ExpressionPoint; end: ExpressionPoint; arrowSize: number };
   rectangle: StylePreset & { radius: number };
-  ellipse: StylePreset & { center: Point; rx: number; ry: number };
+  ellipse: StylePreset & { center: ExpressionPoint; majorRadiusExpr: string; minorRadiusExpr: string; eccentricityExpr: string; majorAxis: 'x' | 'y' };
   polygon: StylePreset;
   text: StylePreset & { fontSize: number };
   math: StylePreset & { fontSize: number };
@@ -72,12 +75,27 @@ interface ToolPresets {
     labelIntervalExpr: string;
     maxValueExpr: string;
     divisionPercents: number[];
+    showMaxValue: boolean;
   };
+}
+
+type ResizeHandle = 'nw' | 'ne' | 'se' | 'sw' | 'start' | 'end';
+
+type AlignMode = 'left' | 'center' | 'right' | 'top' | 'middle' | 'bottom' | 'distributeX' | 'distributeY';
+type ArrangeMode = 'front' | 'forward' | 'backward' | 'back';
+type SnapKind = 'grid' | 'point' | 'center' | 'intersection' | 'edge';
+
+interface SnapResult {
+  point: Point;
+  kind?: SnapKind;
 }
 
 type Interaction =
   | { kind: 'draw'; objectId: string; start: Point }
-  | { kind: 'move'; objectId: string; start: Point; original: GraphicObject }
+  | { kind: 'move'; objectIds: string[]; start: Point; originals: GraphicObject[] }
+  | { kind: 'resize'; objectId: string; handle: ResizeHandle; original: GraphicObject; originalBounds: { x: number; y: number; width: number; height: number }; originalCenter: Point; rotation: number }
+  | { kind: 'vertex'; objectId: string; index: number; original: GraphicObject; originalCenter: Point; rotation: number }
+  | { kind: 'marquee'; start: Point; additive: boolean }
   | { kind: 'pan'; clientStart: Point; originalView: ViewState }
   | { kind: 'zoom'; start: Point }
   | null;
@@ -91,6 +109,8 @@ type ModalState =
 
 const MIN_DRAW_SIZE = 4;
 const TWO_PI = Math.PI * 2;
+const RAD_TO_DEG = 180 / Math.PI;
+const DEG_TO_RAD = Math.PI / 180;
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
@@ -125,6 +145,13 @@ function normalizeAngle(value: number): number {
   return angle;
 }
 
+function normalizeDegrees(value: number): number {
+  let angle = value;
+  while (angle > 180) angle -= 360;
+  while (angle < -180) angle += 360;
+  return angle;
+}
+
 function rotatePoint(point: Point, center: Point, angle: number): Point {
   const cos = Math.cos(angle);
   const sin = Math.sin(angle);
@@ -138,10 +165,10 @@ function createPresets(settings: GraphantaSettings): ToolPresets {
   const shapeStyle = { stroke: settings.defaultStroke, fill: settings.defaultFill, strokeWidth: settings.defaultStrokeWidth, opacity: 1 };
   return {
     pen: { ...lineStyle },
-    line: { ...lineStyle, start: { x: -4, y: 0 }, end: { x: 4, y: 0 } },
-    arrow: { ...lineStyle, start: { x: -4, y: 0 }, end: { x: 4, y: 0 }, arrowSize: 14 },
+    line: { ...lineStyle, start: { x: '-4', y: '0' }, end: { x: '4', y: '0' } },
+    arrow: { ...lineStyle, start: { x: '-4', y: '0' }, end: { x: '4', y: '0' }, arrowSize: 14 },
     rectangle: { ...shapeStyle, radius: 0 },
-    ellipse: { ...shapeStyle, center: { x: 0, y: 0 }, rx: 2, ry: 2 },
+    ellipse: { ...shapeStyle, center: { x: '0', y: '0' }, majorRadiusExpr: '2', minorRadiusExpr: '2', eccentricityExpr: '0', majorAxis: 'x' },
     polygon: { ...shapeStyle },
     text: { ...lineStyle, fontSize: 28 },
     math: { ...lineStyle, fontSize: 30 },
@@ -153,6 +180,7 @@ function createPresets(settings: GraphantaSettings): ToolPresets {
       labelIntervalExpr: '1',
       maxValueExpr: '10',
       divisionPercents: [50],
+      showMaxValue: true,
     },
   };
 }
@@ -166,9 +194,12 @@ function normalizeSettings(value: GraphantaSettings | null): GraphantaSettings {
 }
 
 function normalizeObject(object: GraphicObject): GraphicObject {
-  if (object.type === 'arrow') return { ...object, arrowSize: object.arrowSize ?? 14 };
-  if (object.type === 'rectangle' || object.type === 'ellipse' || object.type === 'array' || object.type === 'pen' || object.type === 'polygon') {
-    return { ...object, rotation: object.rotation ?? 0 };
+  if (object.type === 'arrow') return { ...object, arrowSize: object.arrowSize ?? 14, bindings: object.bindings ?? {} };
+  if (object.type === 'rectangle' || object.type === 'array' || object.type === 'pen' || object.type === 'polygon') {
+    return { ...object, rotation: object.rotation ?? 0, bindings: object.bindings ?? {} };
+  }
+  if (object.type === 'ellipse') {
+    return { ...object, rotation: object.rotation ?? 0, majorAxis: object.majorAxis ?? (object.rx >= object.ry ? 'x' : 'y'), bindings: object.bindings ?? {} };
   }
   if (object.type === 'segment') {
     const oldEnd = object.endValueExpr ?? '10';
@@ -179,10 +210,12 @@ function normalizeObject(object: GraphicObject): GraphicObject {
       labelIntervalExpr: object.labelIntervalExpr ?? (object.showValues === false ? '0' : '1'),
       maxValueExpr: object.maxValueExpr ?? oldEnd,
       divisionPercents: Array.isArray(object.divisionPercents) && object.divisionPercents.length ? object.divisionPercents : [50],
+      showMaxValue: object.showMaxValue !== false,
       rotation: object.rotation ?? 0,
+      bindings: object.bindings ?? {},
     };
   }
-  return object;
+  return { ...object, bindings: object.bindings ?? {} };
 }
 
 function normalizeProject(value: GraphantaProject): GraphantaProject {
@@ -235,11 +268,323 @@ function getObjectBounds(object: GraphicObject): { x: number; y: number; width: 
   }
 }
 
+function objectRotation(object: GraphicObject): number {
+  return 'rotation' in object && typeof object.rotation === 'number' ? object.rotation : 0;
+}
+
+function getObjectCenter(object: GraphicObject): Point {
+  if ((object.type === 'pen' || object.type === 'polygon') && object.rotationCenter) return object.rotationCenter;
+  const bounds = getObjectBounds(object);
+  return { x: bounds.x + bounds.width / 2, y: bounds.y + bounds.height / 2 };
+}
+
+function getDisplayCorners(object: GraphicObject): Point[] {
+  const bounds = getObjectBounds(object);
+  const corners = [
+    { x: bounds.x, y: bounds.y },
+    { x: bounds.x + bounds.width, y: bounds.y },
+    { x: bounds.x + bounds.width, y: bounds.y + bounds.height },
+    { x: bounds.x, y: bounds.y + bounds.height },
+  ];
+  const rotation = objectRotation(object);
+  if (!rotation) return corners;
+  const center = getObjectCenter(object);
+  return corners.map((point) => rotatePoint(point, center, rotation));
+}
+
+function getDisplayBounds(object: GraphicObject): { x: number; y: number; width: number; height: number } {
+  if (object.type === 'line' || object.type === 'arrow' || object.type === 'segment') return normalizeRect(object.start, object.end);
+  const corners = getDisplayCorners(object);
+  const xs = corners.map((point) => point.x);
+  const ys = corners.map((point) => point.y);
+  return { x: Math.min(...xs), y: Math.min(...ys), width: Math.max(...xs) - Math.min(...xs), height: Math.max(...ys) - Math.min(...ys) };
+}
+
+function unionBounds(objects: GraphicObject[]): { x: number; y: number; width: number; height: number } | null {
+  if (!objects.length) return null;
+  const bounds = objects.map(getDisplayBounds);
+  const x = Math.min(...bounds.map((item) => item.x));
+  const y = Math.min(...bounds.map((item) => item.y));
+  const right = Math.max(...bounds.map((item) => item.x + item.width));
+  const bottom = Math.max(...bounds.map((item) => item.y + item.height));
+  return { x, y, width: right - x, height: bottom - y };
+}
+
+function rectContainsBounds(container: { x: number; y: number; width: number; height: number }, child: { x: number; y: number; width: number; height: number }): boolean {
+  return child.x >= container.x && child.y >= container.y && child.x + child.width <= container.x + container.width && child.y + child.height <= container.y + container.height;
+}
+
+function lineIntersection(a1: Point, a2: Point, b1: Point, b2: Point): Point | null {
+  const dax = a2.x - a1.x;
+  const day = a2.y - a1.y;
+  const dbx = b2.x - b1.x;
+  const dby = b2.y - b1.y;
+  const denominator = dax * dby - day * dbx;
+  if (Math.abs(denominator) < 1e-8) return null;
+  const dx = b1.x - a1.x;
+  const dy = b1.y - a1.y;
+  const ta = (dx * dby - dy * dbx) / denominator;
+  const tb = (dx * day - dy * dax) / denominator;
+  if (ta < -1e-8 || ta > 1 + 1e-8 || tb < -1e-8 || tb > 1 + 1e-8) return null;
+  return { x: a1.x + ta * dax, y: a1.y + ta * day };
+}
+
+function projectToSegment(point: Point, start: Point, end: Point): Point {
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  const lengthSquared = dx * dx + dy * dy;
+  if (lengthSquared < 1e-8) return start;
+  const t = clamp(((point.x - start.x) * dx + (point.y - start.y) * dy) / lengthSquared, 0, 1);
+  return { x: start.x + dx * t, y: start.y + dy * t };
+}
+
+function displayedPoint(object: GraphicObject, point: Point): Point {
+  const rotation = objectRotation(object);
+  return rotation ? rotatePoint(point, getObjectCenter(object), rotation) : point;
+}
+
+function getSnapGeometry(object: GraphicObject): { points: Array<{ point: Point; kind: 'point' | 'center' }>; segments: Array<{ start: Point; end: Point }> } {
+  const points: Array<{ point: Point; kind: 'point' | 'center' }> = [];
+  const segments: Array<{ start: Point; end: Point }> = [];
+  if (object.type === 'line' || object.type === 'arrow' || object.type === 'segment') {
+    points.push({ point: object.start, kind: 'point' }, { point: object.end, kind: 'point' }, { point: { x: (object.start.x + object.end.x) / 2, y: (object.start.y + object.end.y) / 2 }, kind: 'center' });
+    segments.push({ start: object.start, end: object.end });
+    return { points, segments };
+  }
+  if (object.type === 'rectangle' || object.type === 'array') {
+    const corners = getDisplayCorners(object);
+    corners.forEach((point) => points.push({ point, kind: 'point' }));
+    points.push({ point: getObjectCenter(object), kind: 'center' });
+    corners.forEach((point, index) => segments.push({ start: point, end: corners[(index + 1) % corners.length] }));
+    return { points, segments };
+  }
+  if (object.type === 'ellipse') {
+    const center = getObjectCenter(object);
+    points.push({ point: center, kind: 'center' });
+    const cardinal = [
+      { x: object.cx + object.rx, y: object.cy },
+      { x: object.cx - object.rx, y: object.cy },
+      { x: object.cx, y: object.cy + object.ry },
+      { x: object.cx, y: object.cy - object.ry },
+    ];
+    cardinal.map((point) => displayedPoint(object, point)).forEach((point) => points.push({ point, kind: 'point' }));
+    return { points, segments };
+  }
+  if (object.type === 'polygon' || object.type === 'pen') {
+    const displayed = object.points.map((point) => displayedPoint(object, point));
+    if (displayed.length) {
+      points.push({ point: displayed[0], kind: 'point' });
+      if (displayed.length > 1) points.push({ point: displayed.at(-1)!, kind: 'point' });
+      if (object.type === 'polygon') displayed.forEach((point) => points.push({ point, kind: 'point' }));
+      displayed.slice(0, -1).forEach((point, index) => segments.push({ start: point, end: displayed[index + 1] }));
+      if (object.type === 'polygon' && displayed.length > 2) segments.push({ start: displayed.at(-1)!, end: displayed[0] });
+      points.push({ point: getObjectCenter(object), kind: 'center' });
+    }
+    return { points, segments };
+  }
+  if (object.type === 'text' || object.type === 'math') {
+    points.push({ point: { x: object.x, y: object.y }, kind: 'point' });
+  }
+  return { points, segments };
+}
+
 function toolForObject(object: GraphicObject): ToolId {
   if (object.type === 'line') return 'line';
   if (object.type === 'arrow') return 'arrow';
   if (object.type === 'segment') return 'segment';
   return object.type;
+}
+
+
+function bindingExpression(object: GraphicObject, key: string, fallback: number): string {
+  const value = object.bindings?.[key];
+  return value !== undefined && value !== '' ? value : String(roundValue(fallback));
+}
+
+function geometryBindingNumber(object: GraphicObject, key: string, fallback: number, variables: VariableDef[]): number {
+  const expression = object.bindings?.[key];
+  return expression !== undefined && expression !== '' ? resolveNumber(expression, variables, fallback) : fallback;
+}
+
+function clearGeometryBindings<T extends GraphicObject>(object: T): T {
+  return { ...object, bindings: {} } as T;
+}
+
+function coordinateAngleDegrees(start: Point, end: Point): number {
+  return normalizeDegrees(Math.atan2(-(end.y - start.y), end.x - start.x) * RAD_TO_DEG);
+}
+
+function cumulativeDivisionPositions(values: number[]): number[] {
+  let total = 0;
+  return values.map((value) => {
+    total = Math.min(100, total + clamp(value, 0, 100));
+    return total;
+  }).filter((value) => value > 0 && value < 100);
+}
+
+function resolveGeometryObject(
+  object: GraphicObject,
+  variables: VariableDef[],
+  worldToCoordinate: (point: Point) => Point,
+  coordinateToWorld: (point: Point) => Point,
+  coordinateUnitPx: number,
+): GraphicObject {
+  const rotationDegrees = (fallbackScreenRadians: number) => geometryBindingNumber(
+    object,
+    'rotationDeg',
+    normalizeDegrees(-fallbackScreenRadians * RAD_TO_DEG),
+    variables,
+  );
+
+  if (object.type === 'line' || object.type === 'arrow' || object.type === 'segment') {
+    const startFallback = worldToCoordinate(object.start);
+    const endFallback = worldToCoordinate(object.end);
+    let startCoordinate = {
+      x: geometryBindingNumber(object, 'startX', startFallback.x, variables),
+      y: geometryBindingNumber(object, 'startY', startFallback.y, variables),
+    };
+    let endCoordinate = {
+      x: geometryBindingNumber(object, 'endX', endFallback.x, variables),
+      y: geometryBindingNumber(object, 'endY', endFallback.y, variables),
+    };
+    if (object.bindings?.rotationDeg !== undefined) {
+      const center = { x: (startCoordinate.x + endCoordinate.x) / 2, y: (startCoordinate.y + endCoordinate.y) / 2 };
+      const length = Math.hypot(endCoordinate.x - startCoordinate.x, endCoordinate.y - startCoordinate.y);
+      const angle = geometryBindingNumber(object, 'rotationDeg', coordinateAngleDegrees(object.start, object.end), variables) * DEG_TO_RAD;
+      const vector = { x: Math.cos(angle) * length / 2, y: Math.sin(angle) * length / 2 };
+      startCoordinate = { x: center.x - vector.x, y: center.y - vector.y };
+      endCoordinate = { x: center.x + vector.x, y: center.y + vector.y };
+    }
+    return { ...object, start: coordinateToWorld(startCoordinate), end: coordinateToWorld(endCoordinate) };
+  }
+
+  if (object.type === 'rectangle' || object.type === 'array') {
+    const topLeft = worldToCoordinate({ x: object.x, y: object.y });
+    const coordinateX = geometryBindingNumber(object, 'x', topLeft.x, variables);
+    const coordinateY = geometryBindingNumber(object, 'y', topLeft.y, variables);
+    const width = Math.max(0.001, Math.abs(geometryBindingNumber(object, 'width', object.width / coordinateUnitPx, variables))) * coordinateUnitPx;
+    const height = Math.max(0.001, Math.abs(geometryBindingNumber(object, 'height', object.height / coordinateUnitPx, variables))) * coordinateUnitPx;
+    const world = coordinateToWorld({ x: coordinateX, y: coordinateY });
+    return { ...object, x: world.x, y: world.y, width, height, rotation: -rotationDegrees(object.rotation ?? 0) * DEG_TO_RAD };
+  }
+
+  if (object.type === 'ellipse') {
+    const centerFallback = worldToCoordinate({ x: object.cx, y: object.cy });
+    const center = coordinateToWorld({
+      x: geometryBindingNumber(object, 'centerX', centerFallback.x, variables),
+      y: geometryBindingNumber(object, 'centerY', centerFallback.y, variables),
+    });
+    const axis = object.majorAxis ?? (object.rx >= object.ry ? 'x' : 'y');
+    const majorFallback = (axis === 'x' ? object.rx : object.ry) / coordinateUnitPx;
+    const minorFallback = (axis === 'x' ? object.ry : object.rx) / coordinateUnitPx;
+    const major = Math.max(0.001, Math.abs(geometryBindingNumber(object, 'majorRadius', majorFallback, variables)));
+    let minor = Math.max(0.001, Math.abs(geometryBindingNumber(object, 'minorRadius', minorFallback, variables)));
+    if (object.bindings?.eccentricity !== undefined) {
+      const eccentricity = clamp(Math.abs(geometryBindingNumber(object, 'eccentricity', 0, variables)), 0, 0.999999);
+      minor = major * Math.sqrt(1 - eccentricity * eccentricity);
+    }
+    return {
+      ...object,
+      cx: center.x,
+      cy: center.y,
+      rx: (axis === 'x' ? major : minor) * coordinateUnitPx,
+      ry: (axis === 'y' ? major : minor) * coordinateUnitPx,
+      majorAxis: axis,
+      rotation: -rotationDegrees(object.rotation ?? 0) * DEG_TO_RAD,
+    };
+  }
+
+  if (object.type === 'pen' || object.type === 'polygon') {
+    return { ...object, rotation: -rotationDegrees(object.rotation ?? 0) * DEG_TO_RAD };
+  }
+
+  if (object.type === 'text' || object.type === 'math') {
+    const fallback = worldToCoordinate({ x: object.x, y: object.y });
+    const world = coordinateToWorld({
+      x: geometryBindingNumber(object, 'x', fallback.x, variables),
+      y: geometryBindingNumber(object, 'y', fallback.y, variables),
+    });
+    return { ...object, x: world.x, y: world.y };
+  }
+
+  return object;
+}
+
+function resizeGraphicObject(
+  object: GraphicObject,
+  handle: ResizeHandle,
+  point: Point,
+  bounds: { x: number; y: number; width: number; height: number },
+  originalCenter: Point,
+  rotation: number,
+  forcePreserveRatio = false,
+  releasePreserveRatio = false,
+): GraphicObject {
+  if (object.type === 'line' || object.type === 'arrow' || object.type === 'segment') {
+    if (handle === 'start') return clearGeometryBindings({ ...object, start: point });
+    if (handle === 'end') return clearGeometryBindings({ ...object, end: point });
+    return object;
+  }
+
+  const opposite: Record<'nw' | 'ne' | 'se' | 'sw', Point> = {
+    nw: { x: bounds.x + bounds.width, y: bounds.y + bounds.height },
+    ne: { x: bounds.x, y: bounds.y + bounds.height },
+    se: { x: bounds.x, y: bounds.y },
+    sw: { x: bounds.x + bounds.width, y: bounds.y },
+  };
+  if (!(handle in opposite)) return object;
+  const anchorLocal = opposite[handle as keyof typeof opposite];
+  const anchorWorld = rotatePoint(anchorLocal, originalCenter, rotation);
+  const localPointer = rotatePoint(point, anchorWorld, -rotation);
+  let dx = localPointer.x - anchorWorld.x;
+  let dy = localPointer.y - anchorWorld.y;
+  const naturalPreserve = object.type === 'pen' || object.type === 'polygon' || object.type === 'text' || object.type === 'math';
+  const preserveRatio = forcePreserveRatio || (naturalPreserve && !releasePreserveRatio);
+  if (preserveRatio) {
+    const originalWidth = Math.max(1, bounds.width);
+    const originalHeight = Math.max(1, bounds.height);
+    const scale = Math.max(Math.abs(dx) / originalWidth, Math.abs(dy) / originalHeight, 0.01);
+    dx = Math.sign(dx || (handle === 'nw' || handle === 'sw' ? -1 : 1)) * originalWidth * scale;
+    dy = Math.sign(dy || (handle === 'nw' || handle === 'ne' ? -1 : 1)) * originalHeight * scale;
+  }
+  if (Math.abs(dx) < 4) dx = Math.sign(dx || 1) * 4;
+  if (Math.abs(dy) < 4) dy = Math.sign(dy || 1) * 4;
+
+  const cos = Math.cos(rotation);
+  const sin = Math.sin(rotation);
+  const halfVector = { x: dx / 2, y: dy / 2 };
+  const centerWorld = {
+    x: anchorWorld.x + halfVector.x * cos - halfVector.y * sin,
+    y: anchorWorld.y + halfVector.x * sin + halfVector.y * cos,
+  };
+  const width = Math.abs(dx);
+  const height = Math.abs(dy);
+  const next = { x: centerWorld.x - width / 2, y: centerWorld.y - height / 2, width, height };
+  const sx = width / Math.max(1, bounds.width);
+  const sy = height / Math.max(1, bounds.height);
+  const oldCenter = { x: bounds.x + bounds.width / 2, y: bounds.y + bounds.height / 2 };
+  const mapPoint = (source: Point): Point => ({
+    x: centerWorld.x + (source.x - oldCenter.x) * sx,
+    y: centerWorld.y + (source.y - oldCenter.y) * sy,
+  });
+
+  if (object.type === 'rectangle' || object.type === 'array') {
+    return clearGeometryBindings({ ...object, x: next.x, y: next.y, width, height });
+  }
+  if (object.type === 'ellipse') {
+    const rx = width / 2;
+    const ry = height / 2;
+    return clearGeometryBindings({ ...object, cx: centerWorld.x, cy: centerWorld.y, rx, ry, majorAxis: rx >= ry ? 'x' : 'y' });
+  }
+  if (object.type === 'pen' || object.type === 'polygon') {
+    return clearGeometryBindings({ ...object, rotationCenter: centerWorld, points: object.points.map(mapPoint) });
+  }
+  if (object.type === 'text' || object.type === 'math') {
+    const mapped = mapPoint({ x: object.x, y: object.y });
+    const scale = Math.max(sx, sy);
+    return clearGeometryBindings({ ...object, x: mapped.x, y: mapped.y, fontSize: clamp(object.fontSize * scale, 6, 320) });
+  }
+  return object;
 }
 
 function App() {
@@ -248,10 +593,12 @@ function App() {
   const [settings, setSettings] = useState<GraphantaSettings>(initialSettings);
   const [presets, setPresets] = useState<ToolPresets>(() => createPresets(initialSettings));
   const [activeTool, setActiveTool] = useState<ToolId>('select');
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [view, setView] = useState<ViewState>({ x: 0, y: 0, zoom: 1 });
   const [interaction, setInteraction] = useState<Interaction>(null);
   const [zoomBox, setZoomBox] = useState<{ start: Point; end: Point } | null>(null);
+  const [selectionBox, setSelectionBox] = useState<{ start: Point; end: Point } | null>(null);
+  const [snapIndicator, setSnapIndicator] = useState<SnapResult | null>(null);
   const [polygonPoints, setPolygonPoints] = useState<Point[]>([]);
   const [panelCollapsed, setPanelCollapsed] = useState({ tweak: false, expressions: false });
   const [modal, setModal] = useState<ModalState>(null);
@@ -263,8 +610,13 @@ function App() {
   const settingsInputRef = useRef<HTMLInputElement | null>(null);
   const undoStack = useRef<GraphantaProject[]>([]);
   const redoStack = useRef<GraphantaProject[]>([]);
+  const gestureSnapshot = useRef<GraphantaProject | null>(null);
+  const gestureChanged = useRef(false);
   const [historyRevision, setHistoryRevision] = useState(0);
 
+  const selectedId = selectedIds.at(-1) ?? null;
+  const setSelectedId = useCallback((value: string | null) => setSelectedIds(value ? [value] : []), []);
+  const selectedObjects = useMemo(() => project.objects.filter((object) => selectedIds.includes(object.id)), [project.objects, selectedIds]);
   const selectedObject = useMemo(() => project.objects.find((object) => object.id === selectedId) ?? null, [project.objects, selectedId]);
   const visibleTools = useMemo(() => settings.visibleTools.filter((tool) => ALL_TOOLS.includes(tool)), [settings.visibleTools]);
   const coordinateUnitPx = Math.min(project.canvas.width, project.canvas.height) / (2 * Math.max(1, project.canvas.coordinatePrecision));
@@ -279,6 +631,26 @@ function App() {
     x: coordinateOrigin.x + point.x * coordinateUnitPx,
     y: coordinateOrigin.y - point.y * coordinateUnitPx,
   }), [coordinateOrigin, coordinateUnitPx]);
+
+  const resolveObject = useCallback((object: GraphicObject): GraphicObject => resolveGeometryObject(object, project.variables, worldToCoordinate, coordinateToWorld, coordinateUnitPx), [project.variables, worldToCoordinate, coordinateToWorld, coordinateUnitPx]);
+  const resolvedObjects = useMemo(() => project.objects.filter((object) => !object.hidden).map(resolveObject), [project.objects, resolveObject]);
+  const selectedResolvedObject = useMemo(() => selectedObject ? resolveObject(selectedObject) : null, [selectedObject, resolveObject]);
+  const selectedResolvedObjects = useMemo(() => selectedObjects.map(resolveObject), [selectedObjects, resolveObject]);
+  const snapGeometry = useMemo(() => {
+    const entries = resolvedObjects.map((object) => ({ objectId: object.id, ...getSnapGeometry(object) }));
+    const intersections: Array<{ point: Point; objectIds: [string, string] }> = [];
+    for (let first = 0; first < entries.length; first += 1) {
+      for (let second = first + 1; second < entries.length; second += 1) {
+        for (const a of entries[first].segments) {
+          for (const b of entries[second].segments) {
+            const point = lineIntersection(a.start, a.end, b.start, b.end);
+            if (point) intersections.push({ point, objectIds: [entries[first].objectId, entries[second].objectId] });
+          }
+        }
+      }
+    }
+    return { entries, intersections };
+  }, [resolvedObjects]);
 
   const commitHistory = useCallback((snapshot: GraphantaProject = project) => {
     undoStack.current.push(structuredClone(snapshot));
@@ -325,19 +697,86 @@ function App() {
   }, [mutateProject]);
 
   const deleteSelected = useCallback(() => {
-    if (!selectedId) return;
-    mutateProject((current) => ({ ...current, objects: current.objects.filter((object) => object.id !== selectedId) }));
-    setSelectedId(null);
-    setStatus('選択した要素を削除しました');
-  }, [mutateProject, selectedId]);
+    if (!selectedIds.length) return;
+    const targets = new Set(selectedIds);
+    mutateProject((current) => ({ ...current, objects: current.objects.filter((object) => !targets.has(object.id)) }));
+    setSelectedIds([]);
+    setStatus(`${selectedIds.length}要素を削除しました`);
+  }, [mutateProject, selectedIds]);
 
   const duplicateSelected = useCallback(() => {
-    if (!selectedObject) return;
-    const duplicate = translateObject({ ...structuredClone(selectedObject), id: createId(selectedObject.type) }, 20, 20);
-    mutateProject((current) => ({ ...current, objects: [...current.objects, duplicate] }));
-    setSelectedId(duplicate.id);
-    setStatus('選択した要素を複製しました');
-  }, [mutateProject, selectedObject]);
+    if (!selectedObjects.length) return;
+    const duplicates = selectedObjects.map((object) => translateObject({ ...structuredClone(object), id: createId(object.type) }, 20, 20));
+    mutateProject((current) => ({ ...current, objects: [...current.objects, ...duplicates] }));
+    setSelectedIds(duplicates.map((object) => object.id));
+    setStatus(`${duplicates.length}要素を複製しました`);
+  }, [mutateProject, selectedObjects]);
+
+  const alignSelected = useCallback((mode: AlignMode) => {
+    const movable = selectedResolvedObjects.filter((object) => !object.locked);
+    if (movable.length < 2) return;
+    const group = unionBounds(movable);
+    if (!group) return;
+    const translated = new Map<string, GraphicObject>();
+    if (mode === 'distributeX' || mode === 'distributeY') {
+      if (movable.length < 3) return;
+      const horizontal = mode === 'distributeX';
+      const sorted = [...movable].sort((a, b) => {
+        const aBounds = getDisplayBounds(a);
+        const bBounds = getDisplayBounds(b);
+        const aCenter = horizontal ? aBounds.x + aBounds.width / 2 : aBounds.y + aBounds.height / 2;
+        const bCenter = horizontal ? bBounds.x + bBounds.width / 2 : bBounds.y + bBounds.height / 2;
+        return aCenter - bCenter;
+      });
+      const firstBounds = getDisplayBounds(sorted[0]);
+      const lastBounds = getDisplayBounds(sorted.at(-1)!);
+      const firstCenter = horizontal ? firstBounds.x + firstBounds.width / 2 : firstBounds.y + firstBounds.height / 2;
+      const lastCenter = horizontal ? lastBounds.x + lastBounds.width / 2 : lastBounds.y + lastBounds.height / 2;
+      const step = (lastCenter - firstCenter) / (sorted.length - 1);
+      sorted.forEach((object, index) => {
+        const bounds = getDisplayBounds(object);
+        const center = horizontal ? bounds.x + bounds.width / 2 : bounds.y + bounds.height / 2;
+        const delta = firstCenter + step * index - center;
+        translated.set(object.id, clearGeometryBindings(translateObject(object, horizontal ? delta : 0, horizontal ? 0 : delta)));
+      });
+    } else {
+      movable.forEach((object) => {
+        const bounds = getDisplayBounds(object);
+        let dx = 0;
+        let dy = 0;
+        if (mode === 'left') dx = group.x - bounds.x;
+        if (mode === 'center') dx = group.x + group.width / 2 - (bounds.x + bounds.width / 2);
+        if (mode === 'right') dx = group.x + group.width - (bounds.x + bounds.width);
+        if (mode === 'top') dy = group.y - bounds.y;
+        if (mode === 'middle') dy = group.y + group.height / 2 - (bounds.y + bounds.height / 2);
+        if (mode === 'bottom') dy = group.y + group.height - (bounds.y + bounds.height);
+        translated.set(object.id, clearGeometryBindings(translateObject(object, dx, dy)));
+      });
+    }
+    mutateProject((current) => ({ ...current, objects: current.objects.map((object) => translated.get(object.id) ?? object) }));
+    setStatus('選択要素を整列しました');
+  }, [mutateProject, selectedResolvedObjects]);
+
+  const arrangeSelected = useCallback((mode: ArrangeMode) => {
+    if (!selectedIds.length) return;
+    const selected = new Set(selectedIds);
+    mutateProject((current) => {
+      const objects = [...current.objects];
+      if (mode === 'front') return { ...current, objects: [...objects.filter((object) => !selected.has(object.id)), ...objects.filter((object) => selected.has(object.id))] };
+      if (mode === 'back') return { ...current, objects: [...objects.filter((object) => selected.has(object.id)), ...objects.filter((object) => !selected.has(object.id))] };
+      if (mode === 'forward') {
+        for (let index = objects.length - 2; index >= 0; index -= 1) {
+          if (selected.has(objects[index].id) && !selected.has(objects[index + 1].id)) [objects[index], objects[index + 1]] = [objects[index + 1], objects[index]];
+        }
+      } else {
+        for (let index = 1; index < objects.length; index += 1) {
+          if (selected.has(objects[index].id) && !selected.has(objects[index - 1].id)) [objects[index], objects[index - 1]] = [objects[index - 1], objects[index]];
+        }
+      }
+      return { ...current, objects };
+    });
+    setStatus('重なり順を変更しました');
+  }, [mutateProject, selectedIds]);
 
   useEffect(() => saveSettingsLocal(settings), [settings]);
 
@@ -379,25 +818,33 @@ function App() {
         event.preventDefault();
         deleteSelected();
       } else if (event.key === 'Escape') {
+        if (gestureSnapshot.current) {
+          setProject(gestureSnapshot.current);
+          gestureSnapshot.current = null;
+          gestureChanged.current = false;
+        }
         setPolygonPoints([]);
         setInteraction(null);
         setZoomBox(null);
+        setSelectionBox(null);
+        setSnapIndicator(null);
         setModal(null);
-        setSelectedId(null);
+        setSelectedIds([]);
       } else if (event.key === 'Enter' && polygonPoints.length >= 3) {
         event.preventDefault();
         finalizePolygon();
-      } else if (selectedObject && ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key)) {
+      } else if (selectedResolvedObjects.length && ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key)) {
         event.preventDefault();
         const amount = event.shiftKey ? 10 : 1;
         const dx = event.key === 'ArrowLeft' ? -amount : event.key === 'ArrowRight' ? amount : 0;
         const dy = event.key === 'ArrowUp' ? -amount : event.key === 'ArrowDown' ? amount : 0;
-        updateObject(selectedObject.id, (object) => translateObject(object, dx, dy));
+        const replacements = new Map(selectedResolvedObjects.map((object) => [object.id, clearGeometryBindings(translateObject(object, dx, dy))]));
+        mutateProject((current) => ({ ...current, objects: current.objects.map((object) => replacements.get(object.id) ?? object) }));
       }
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [deleteSelected, polygonPoints.length, redo, selectedObject, undo, updateObject]);
+  }, [deleteSelected, mutateProject, polygonPoints.length, redo, selectedResolvedObjects, undo]);
 
   const rawWorldPoint = useCallback((clientX: number, clientY: number): Point => {
     const svg = svgRef.current;
@@ -410,18 +857,55 @@ function App() {
     return { x: transformed.x, y: transformed.y };
   }, []);
 
-  const snapWorldPoint = useCallback((point: Point): Point => {
-    if (!project.canvas.snapGrid || (!project.canvas.gridVisible && !project.canvas.axesVisible)) return point;
-    const step = project.canvas.axesVisible
-      ? coordinateUnitPx * Math.max(project.canvas.tickInterval || 1, 0.0001)
-      : project.canvas.gridSize;
-    return {
-      x: coordinateOrigin.x + Math.round((point.x - coordinateOrigin.x) / step) * step,
-      y: coordinateOrigin.y + Math.round((point.y - coordinateOrigin.y) / step) * step,
-    };
-  }, [coordinateOrigin, coordinateUnitPx, project.canvas.axesVisible, project.canvas.gridSize, project.canvas.gridVisible, project.canvas.snapGrid, project.canvas.tickInterval]);
+  const snapWorldPoint = useCallback((point: Point, excludeIds: string[] = []): SnapResult => {
+    const excluded = new Set(excludeIds);
+    let gridResult: SnapResult = { point };
+    if (project.canvas.snapGrid && (project.canvas.gridVisible || project.canvas.axesVisible)) {
+      const step = project.canvas.axesVisible
+        ? coordinateUnitPx * Math.max(project.canvas.tickInterval || 1, 0.0001)
+        : project.canvas.gridSize;
+      gridResult = {
+        point: {
+          x: coordinateOrigin.x + Math.round((point.x - coordinateOrigin.x) / step) * step,
+          y: coordinateOrigin.y + Math.round((point.y - coordinateOrigin.y) / step) * step,
+        },
+        kind: 'grid',
+      };
+    }
+    if (!project.canvas.snapPoints) return gridResult;
 
-  const worldPoint = useCallback((clientX: number, clientY: number): Point => snapWorldPoint(rawWorldPoint(clientX, clientY)), [rawWorldPoint, snapWorldPoint]);
+    const threshold = 13 / Math.max(0.25, view.zoom);
+    let best: SnapResult | null = null;
+    let bestDistance = threshold;
+    const consider = (candidate: Point, kind: SnapKind) => {
+      const candidateDistance = distance(point, candidate);
+      if (candidateDistance <= bestDistance) {
+        bestDistance = candidateDistance;
+        best = { point: candidate, kind };
+      }
+    };
+
+    snapGeometry.intersections.forEach((candidate) => {
+      if (candidate.objectIds.some((id) => excluded.has(id))) return;
+      consider(candidate.point, 'intersection');
+    });
+    snapGeometry.entries.forEach((entry) => {
+      if (excluded.has(entry.objectId)) return;
+      entry.points.forEach((candidate) => consider(candidate.point, candidate.kind));
+    });
+    snapGeometry.entries.forEach((entry) => {
+      if (excluded.has(entry.objectId)) return;
+      entry.segments.forEach((segment) => consider(projectToSegment(point, segment.start, segment.end), 'edge'));
+    });
+    return best ?? gridResult;
+  }, [coordinateOrigin, coordinateUnitPx, project.canvas.axesVisible, project.canvas.gridSize, project.canvas.gridVisible, project.canvas.snapGrid, project.canvas.snapPoints, project.canvas.tickInterval, snapGeometry, view.zoom]);
+
+  const worldPoint = useCallback((clientX: number, clientY: number, excludeIds: string[] = []): Point => {
+    const result = snapWorldPoint(rawWorldPoint(clientX, clientY), excludeIds);
+    setSnapIndicator(result.kind ? result : null);
+    return result.point;
+  }, [rawWorldPoint, snapWorldPoint]);
+
 
   function styleFor(tool: ToolId): StylePreset {
     const source = tool === 'pen' ? presets.pen
@@ -450,7 +934,7 @@ function App() {
       case 'rectangle':
         return { id: createId('rectangle'), type: 'rectangle', x: point.x, y: point.y, width: 0, height: 0, radius: presets.rectangle.radius, rotation: 0, ...style };
       case 'ellipse':
-        return { id: createId('ellipse'), type: 'ellipse', cx: point.x, cy: point.y, rx: 0, ry: 0, rotation: 0, ...style };
+        return { id: createId('ellipse'), type: 'ellipse', cx: point.x, cy: point.y, rx: 0, ry: 0, rotation: 0, majorAxis: 'x', ...style };
       case 'array':
         return {
           id: createId('array'), type: 'array', x: point.x, y: point.y, width: 0, height: 0,
@@ -462,7 +946,7 @@ function App() {
           id: createId('segment'), type: 'segment', start: point, end: point,
           mode: presets.segment.mode, tickIntervalExpr: presets.segment.tickIntervalExpr,
           labelIntervalExpr: presets.segment.labelIntervalExpr, maxValueExpr: presets.segment.maxValueExpr,
-          divisionPercents: [...presets.segment.divisionPercents], rotation: 0, ...style,
+          divisionPercents: [...presets.segment.divisionPercents], showMaxValue: presets.segment.showMaxValue, rotation: 0, ...style,
         };
       default:
         return null;
@@ -471,16 +955,28 @@ function App() {
 
   function chooseTool(tool: ToolId) {
     setActiveTool(tool);
-    setSelectedId(null);
+    setSelectedIds([]);
     setPolygonPoints([]);
     setInteraction(null);
     setZoomBox(null);
+    setSelectionBox(null);
+    setSnapIndicator(null);
     setStatus(`${TOOL_LABELS[tool]}を選択しました`);
   }
 
   function beginPointer(event: ReactPointerEvent<SVGSVGElement>) {
     if (event.button !== 0) return;
+    event.preventDefault();
     const target = event.target as Element;
+    const vertexAddElement = target.closest('[data-vertex-add-index]');
+    const vertexAddIndexText = vertexAddElement?.getAttribute('data-vertex-add-index');
+    const vertexAddObjectId = vertexAddElement?.getAttribute('data-vertex-object-id') ?? null;
+    const vertexElement = target.closest('[data-vertex-index]');
+    const vertexIndexText = vertexElement?.getAttribute('data-vertex-index');
+    const vertexObjectId = vertexElement?.getAttribute('data-vertex-object-id') ?? null;
+    const resizeElement = target.closest('[data-resize-handle]');
+    const resizeHandle = resizeElement?.getAttribute('data-resize-handle') as ResizeHandle | null;
+    const resizeObjectId = resizeElement?.getAttribute('data-resize-object-id') ?? null;
     const objectElement = target.closest('[data-object-id]');
     const objectId = objectElement?.getAttribute('data-object-id') ?? null;
 
@@ -498,21 +994,94 @@ function App() {
       return;
     }
 
-    const point = worldPoint(event.clientX, event.clientY);
-    if (activeTool === 'select') {
-      if (!objectId) {
-        setSelectedId(null);
-        return;
-      }
-      const object = project.objects.find((item) => item.id === objectId);
-      if (!object || object.locked) return;
-      commitHistory(project);
-      setSelectedId(objectId);
-      event.currentTarget.setPointerCapture(event.pointerId);
-      setInteraction({ kind: 'move', objectId, start: point, original: structuredClone(object) });
+    if (vertexAddObjectId && vertexAddIndexText !== null) {
+      const source = project.objects.find((item) => item.id === vertexAddObjectId);
+      if (!source || source.type !== 'polygon' || source.locked) return;
+      const resolved = resolveObject(source) as PolygonObject;
+      const index = Number(vertexAddIndexText);
+      const displayed = resolved.points.map((point) => displayedPoint(resolved, point));
+      const previous = displayed[(index - 1 + displayed.length) % displayed.length];
+      const next = displayed[index % displayed.length];
+      const midpoint = { x: (previous.x + next.x) / 2, y: (previous.y + next.y) / 2 };
+      const local = rotatePoint(midpoint, getObjectCenter(resolved), -objectRotation(resolved));
+      updateObject(source.id, () => clearGeometryBindings({ ...resolved, rotationCenter: getObjectCenter(resolved), points: [...resolved.points.slice(0, index), local, ...resolved.points.slice(index)] }));
+      setSelectedId(source.id);
+      setStatus('多角形に頂点を追加しました');
       return;
     }
 
+    if (vertexObjectId && vertexIndexText !== null) {
+      const source = project.objects.find((item) => item.id === vertexObjectId);
+      if (!source || source.type !== 'polygon' || source.locked) return;
+      const resolved = resolveObject(source) as PolygonObject;
+      const index = Number(vertexIndexText);
+      if (event.shiftKey && resolved.points.length > 3) {
+        updateObject(source.id, () => clearGeometryBindings({ ...resolved, rotationCenter: getObjectCenter(resolved), points: resolved.points.filter((_, pointIndex) => pointIndex !== index) }));
+        setSelectedId(source.id);
+        setStatus('多角形の頂点を削除しました');
+        return;
+      }
+      gestureSnapshot.current = structuredClone(project);
+      gestureChanged.current = false;
+      setSelectedId(vertexObjectId);
+      event.currentTarget.setPointerCapture(event.pointerId);
+      setInteraction({ kind: 'vertex', objectId: vertexObjectId, index, original: structuredClone(resolved), originalCenter: getObjectCenter(resolved), rotation: objectRotation(resolved) });
+      return;
+    }
+
+    if (resizeHandle && resizeObjectId) {
+      const source = project.objects.find((item) => item.id === resizeObjectId);
+      if (!source || source.locked) return;
+      const resolved = resolveObject(source);
+      gestureSnapshot.current = structuredClone(project);
+      gestureChanged.current = false;
+      setSelectedId(resizeObjectId);
+      event.currentTarget.setPointerCapture(event.pointerId);
+      setInteraction({
+        kind: 'resize',
+        objectId: resizeObjectId,
+        handle: resizeHandle,
+        original: structuredClone(resolved),
+        originalBounds: getObjectBounds(resolved),
+        originalCenter: getObjectCenter(resolved),
+        rotation: objectRotation(resolved),
+      });
+      return;
+    }
+
+    if (activeTool === 'select') {
+      if (!objectId) {
+        const start = rawWorldPoint(event.clientX, event.clientY);
+        if (!event.shiftKey) setSelectedIds([]);
+        event.currentTarget.setPointerCapture(event.pointerId);
+        setInteraction({ kind: 'marquee', start, additive: event.shiftKey });
+        setSelectionBox({ start, end: start });
+        return;
+      }
+      const object = project.objects.find((item) => item.id === objectId);
+      if (!object) return;
+      if (event.shiftKey) {
+        setSelectedIds((current) => current.includes(objectId) ? current.filter((id) => id !== objectId) : [...current, objectId]);
+        return;
+      }
+      const nextIds = selectedIds.includes(objectId) ? selectedIds : [objectId];
+      setSelectedIds(nextIds);
+      if (object.locked) return;
+      const originals = nextIds
+        .map((id) => project.objects.find((item) => item.id === id))
+        .filter((item): item is GraphicObject => item !== undefined && !item.locked)
+        .map(resolveObject)
+        .map((item) => structuredClone(item));
+      if (!originals.length) return;
+      const point = worldPoint(event.clientX, event.clientY, nextIds);
+      gestureSnapshot.current = structuredClone(project);
+      gestureChanged.current = false;
+      event.currentTarget.setPointerCapture(event.pointerId);
+      setInteraction({ kind: 'move', objectIds: originals.map((item) => item.id), start: point, originals });
+      return;
+    }
+
+    const point = worldPoint(event.clientX, event.clientY);
     if (activeTool === 'text') {
       setModal({ kind: 'text', point, value: '' });
       return;
@@ -538,6 +1107,7 @@ function App() {
 
   function movePointer(event: ReactPointerEvent<SVGSVGElement>) {
     if (!interaction) return;
+    event.preventDefault();
     if (interaction.kind === 'pan') {
       const rect = event.currentTarget.getBoundingClientRect();
       const worldWidth = project.canvas.width / interaction.originalView.zoom;
@@ -551,19 +1121,64 @@ function App() {
       setZoomBox({ start: interaction.start, end: rawWorldPoint(event.clientX, event.clientY) });
       return;
     }
+    if (interaction.kind === 'marquee') {
+      setSelectionBox({ start: interaction.start, end: rawWorldPoint(event.clientX, event.clientY) });
+      return;
+    }
 
-    const point = worldPoint(event.clientX, event.clientY);
-    if (interaction.kind === 'move') {
+    const excluded = interaction.kind === 'move' ? interaction.objectIds : [interaction.objectId];
+    let point = worldPoint(event.clientX, event.clientY, excluded);
+    if (interaction.kind === 'draw' && event.shiftKey) {
       const dx = point.x - interaction.start.x;
       const dy = point.y - interaction.start.y;
-      updateObject(interaction.objectId, () => translateObject(interaction.original, dx, dy), false);
+      const source = project.objects.find((item) => item.id === interaction.objectId);
+      if (source?.type === 'line' || source?.type === 'arrow' || source?.type === 'segment') {
+        const length = Math.hypot(dx, dy);
+        const angle = Math.round(Math.atan2(dy, dx) / (Math.PI / 4)) * (Math.PI / 4);
+        point = { x: interaction.start.x + Math.cos(angle) * length, y: interaction.start.y + Math.sin(angle) * length };
+      } else if (source?.type === 'rectangle' || source?.type === 'ellipse' || source?.type === 'array') {
+        const size = Math.max(Math.abs(dx), Math.abs(dy));
+        point = { x: interaction.start.x + Math.sign(dx || 1) * size, y: interaction.start.y + Math.sign(dy || 1) * size };
+      }
+    }
+    if (interaction.kind === 'move') {
+      gestureChanged.current = true;
+      const dx = point.x - interaction.start.x;
+      const dy = point.y - interaction.start.y;
+      const replacements = new Map(interaction.originals.map((object) => [object.id, clearGeometryBindings(translateObject(object, dx, dy))]));
+      mutateProject((current) => ({ ...current, objects: current.objects.map((object) => replacements.get(object.id) ?? object) }), false);
+      return;
+    }
+    if (interaction.kind === 'vertex') {
+      if (interaction.original.type !== 'polygon') return;
+      gestureChanged.current = true;
+      const localPoint = rotatePoint(point, interaction.originalCenter, -interaction.rotation);
+      const points = interaction.original.points.map((source, index) => index === interaction.index ? localPoint : source);
+      updateObject(interaction.objectId, () => clearGeometryBindings({ ...interaction.original, rotationCenter: interaction.originalCenter, points }), false);
+      return;
+    }
+    if (interaction.kind === 'resize') {
+      gestureChanged.current = true;
+      updateObject(interaction.objectId, () => resizeGraphicObject(
+        interaction.original,
+        interaction.handle,
+        point,
+        interaction.originalBounds,
+        interaction.originalCenter,
+        interaction.rotation,
+        event.shiftKey,
+        event.altKey,
+      ), false);
       return;
     }
 
     updateObject(interaction.objectId, (object) => {
       switch (object.type) {
-        case 'pen':
+        case 'pen': {
+          const last = object.points.at(-1);
+          if (last && distance(last, point) < 1.2 / Math.max(view.zoom, 0.25)) return object;
           return { ...object, points: [...object.points, point] };
+        }
         case 'line':
         case 'arrow':
         case 'segment':
@@ -573,7 +1188,7 @@ function App() {
           return { ...object, ...rect };
         }
         case 'ellipse':
-          return { ...object, cx: interaction.start.x, cy: interaction.start.y, rx: Math.abs(point.x - interaction.start.x), ry: Math.abs(point.y - interaction.start.y) };
+          return { ...object, cx: interaction.start.x, cy: interaction.start.y, rx: Math.abs(point.x - interaction.start.x), ry: Math.abs(point.y - interaction.start.y), majorAxis: Math.abs(point.x - interaction.start.x) >= Math.abs(point.y - interaction.start.y) ? 'x' : 'y' };
         case 'array': {
           const rect = normalizeRect(interaction.start, point);
           return { ...object, ...rect };
@@ -603,6 +1218,17 @@ function App() {
   function endPointer(event: ReactPointerEvent<SVGSVGElement>) {
     if (!interaction) return;
     if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+    setSnapIndicator(null);
+    if (event.type === 'pointercancel' && gestureSnapshot.current) {
+      setProject(gestureSnapshot.current);
+      gestureSnapshot.current = null;
+      gestureChanged.current = false;
+      setSelectionBox(null);
+      setZoomBox(null);
+      setInteraction(null);
+      setStatus('操作を取り消しました');
+      return;
+    }
     if (interaction.kind === 'zoom') {
       const end = rawWorldPoint(event.clientX, event.clientY);
       const rect = normalizeRect(interaction.start, end);
@@ -612,9 +1238,29 @@ function App() {
       setInteraction(null);
       return;
     }
+    if (interaction.kind === 'marquee') {
+      const end = rawWorldPoint(event.clientX, event.clientY);
+      const rect = normalizeRect(interaction.start, end);
+      if (rect.width >= 3 / view.zoom || rect.height >= 3 / view.zoom) {
+        const matches = resolvedObjects.filter((object) => rectContainsBounds(rect, getDisplayBounds(object))).map((object) => object.id);
+        setSelectedIds((current) => interaction.additive ? [...new Set([...current, ...matches])] : matches);
+        setStatus(matches.length ? `${matches.length}要素を範囲選択しました` : '選択を解除しました');
+      }
+      setSelectionBox(null);
+      setInteraction(null);
+      return;
+    }
+    if (interaction.kind === 'move' || interaction.kind === 'resize' || interaction.kind === 'vertex') {
+      if (gestureChanged.current && gestureSnapshot.current) commitHistory(gestureSnapshot.current);
+      gestureSnapshot.current = null;
+      gestureChanged.current = false;
+      setInteraction(null);
+      return;
+    }
     if (interaction.kind === 'draw') {
-      const object = project.objects.find((item) => item.id === interaction.objectId);
-      if (object) {
+      const source = project.objects.find((item) => item.id === interaction.objectId);
+      if (source) {
+        const object = resolveObject(source);
         const bounds = getObjectBounds(object);
         if (bounds.width < MIN_DRAW_SIZE && bounds.height < MIN_DRAW_SIZE && object.type !== 'pen') {
           setProject((current) => ({ ...current, objects: current.objects.filter((item) => item.id !== object.id) }));
@@ -674,18 +1320,48 @@ function App() {
     let object: GraphicObject;
     if (tool === 'line' || tool === 'arrow') {
       const preset = presets[tool];
+      const startCoordinate = {
+        x: resolveNumber(preset.start.x, project.variables, -4),
+        y: resolveNumber(preset.start.y, project.variables, 0),
+      };
+      const endCoordinate = {
+        x: resolveNumber(preset.end.x, project.variables, 4),
+        y: resolveNumber(preset.end.y, project.variables, 0),
+      };
       object = {
         id: createId(tool), type: tool,
         stroke: preset.stroke, fill: preset.fill, strokeWidth: preset.strokeWidth, opacity: preset.opacity,
-        start: coordinateToWorld(preset.start), end: coordinateToWorld(preset.end),
+        start: coordinateToWorld(startCoordinate), end: coordinateToWorld(endCoordinate),
+        bindings: { startX: preset.start.x, startY: preset.start.y, endX: preset.end.x, endY: preset.end.y },
         ...(tool === 'arrow' ? { arrowSize: presets.arrow.arrowSize } : {}),
       } as GraphicObject;
     } else {
       const preset = presets.ellipse;
-      const center = coordinateToWorld(preset.center);
+      const centerCoordinate = {
+        x: resolveNumber(preset.center.x, project.variables, 0),
+        y: resolveNumber(preset.center.y, project.variables, 0),
+      };
+      const center = coordinateToWorld(centerCoordinate);
+      const major = Math.max(0.05, Math.abs(resolveNumber(preset.majorRadiusExpr, project.variables, 2)));
+      let minor = Math.max(0.05, Math.abs(resolveNumber(preset.minorRadiusExpr, project.variables, 2)));
+      const eccentricity = clamp(Math.abs(resolveNumber(preset.eccentricityExpr, project.variables, 0)), 0, 0.999999);
+      if (eccentricity > 0) minor = major * Math.sqrt(1 - eccentricity * eccentricity);
+      const bindings: Record<string, string> = {
+        centerX: preset.center.x,
+        centerY: preset.center.y,
+        majorRadius: preset.majorRadiusExpr,
+        minorRadius: preset.minorRadiusExpr,
+      };
+      const eccentricitySource = preset.eccentricityExpr.trim();
+      if (eccentricitySource && !/^[-+]?0+(?:\.0+)?$/.test(eccentricitySource)) {
+        bindings.eccentricity = eccentricitySource;
+      }
       object = {
         id: createId('ellipse'), type: 'ellipse', cx: center.x, cy: center.y,
-        rx: Math.max(0.05, preset.rx) * coordinateUnitPx, ry: Math.max(0.05, preset.ry) * coordinateUnitPx,
+        rx: (preset.majorAxis === 'x' ? major : minor) * coordinateUnitPx,
+        ry: (preset.majorAxis === 'y' ? major : minor) * coordinateUnitPx,
+        majorAxis: preset.majorAxis,
+        bindings,
         rotation: 0, stroke: preset.stroke, fill: preset.fill, strokeWidth: preset.strokeWidth, opacity: preset.opacity,
       } as EllipseObject;
     }
@@ -756,13 +1432,16 @@ function App() {
     const length = Math.max(1, Math.hypot(dx, dy));
     const unit = { x: dx / length, y: dy / length };
     const normal = { x: -unit.y, y: unit.x };
-    const percentages = object.divisionPercents.map((value) => clamp(value, 0, 100));
-    let cumulative = 0;
-    const points = percentages.map((percent) => {
-      cumulative += percent;
-      return Math.min(cumulative, 100);
-    }).filter((percent) => percent < 99.999);
+    const points = cumulativeDivisionPositions(object.divisionPercents);
     const maxValue = resolveNumber(object.maxValueExpr, project.variables, 10);
+    const markerPercents = [0, ...points, 100];
+    const valueLabel = (percent: number, offset: number) => {
+      if (percent === 100 && !object.showMaxValue) return null;
+      const x = object.start.x + dx * percent / 100 + normal.x * offset;
+      const y = object.start.y + dy * percent / 100 + normal.y * offset;
+      const value = percent === 0 ? 0 : roundValue(maxValue * percent / 100);
+      return <text key={`value-${percent}`} x={x} y={y} textAnchor="middle" dominantBaseline="middle" fontSize={16} fill={object.stroke} stroke="none">{value}</text>;
+    };
     if (object.mode === 'tape') {
       const height = 42;
       const corners = [
@@ -779,20 +1458,20 @@ function App() {
             const y = object.start.y + dy * percent / 100;
             return <line key={percent} x1={x - normal.x * height / 2} y1={y - normal.y * height / 2} x2={x + normal.x * height / 2} y2={y + normal.y * height / 2} />;
           })}
-          <text x={object.end.x + normal.x * 34} y={object.end.y + normal.y * 34} textAnchor="middle" dominantBaseline="middle" fontSize={16} fill={object.stroke} stroke="none">{maxValue}</text>
+          {markerPercents.map((percent) => valueLabel(percent, height / 2 + 18))}
         </g>
       );
     }
     return (
       <g>
         <line x1={object.start.x} y1={object.start.y} x2={object.end.x} y2={object.end.y} />
-        {[0, ...points, 100].map((percent) => {
+        {markerPercents.map((percent) => {
           const x = object.start.x + dx * percent / 100;
           const y = object.start.y + dy * percent / 100;
           const half = percent === 0 || percent === 100 ? 12 : 8;
-          return <line key={percent} x1={x - normal.x * half} y1={y - normal.y * half} x2={x + normal.x * half} y2={y + normal.y * half} />;
+          return <line key={`marker-${percent}`} x1={x - normal.x * half} y1={y - normal.y * half} x2={x + normal.x * half} y2={y + normal.y * half} />;
         })}
-        <text x={object.end.x + normal.x * 27} y={object.end.y + normal.y * 27} textAnchor="middle" dominantBaseline="middle" fontSize={16} fill={object.stroke} stroke="none">{maxValue}</text>
+        {markerPercents.map((percent) => valueLabel(percent, 27))}
       </g>
     );
   }
@@ -814,13 +1493,13 @@ function App() {
 
   function objectTransform(object: GraphicObject): string | undefined {
     if (!('rotation' in object) || !object.rotation) return undefined;
-    const bounds = getObjectBounds(object);
-    const center = { x: bounds.x + bounds.width / 2, y: bounds.y + bounds.height / 2 };
+    const center = getObjectCenter(object);
     return `rotate(${object.rotation * 180 / Math.PI} ${center.x} ${center.y})`;
   }
 
-  function renderObject(object: GraphicObject) {
-    if (object.hidden) return null;
+  function renderObject(sourceObject: GraphicObject) {
+    if (sourceObject.hidden) return null;
+    const object = resolveObject(sourceObject);
     const common = { stroke: object.stroke, fill: object.fill, strokeWidth: object.strokeWidth, opacity: object.opacity, vectorEffect: 'non-scaling-stroke' as const };
     const transform = objectTransform(object);
     const hitStroke = Math.max(14 / view.zoom, object.strokeWidth * 4);
@@ -843,20 +1522,96 @@ function App() {
         case 'line': case 'arrow': case 'segment': return <line x1={object.start.x} y1={object.start.y} x2={object.end.x} y2={object.end.y} stroke="transparent" strokeWidth={hitStroke} />;
         case 'pen': return <path d={pointsToPath(object.points)} fill="none" stroke="transparent" strokeWidth={hitStroke} transform={transform} />;
         default: {
-          const bounds = getObjectBounds(object);
-          return <rect x={bounds.x - 5} y={bounds.y - 5} width={Math.max(10, bounds.width + 10)} height={Math.max(10, bounds.height + 10)} fill="transparent" stroke="none" />;
+          const corners = getDisplayCorners(object);
+          return <polygon points={corners.map((point) => `${point.x},${point.y}`).join(' ')} fill="transparent" stroke="transparent" strokeWidth={hitStroke} />;
         }
       }
     })();
-    return <g key={object.id} data-object-id={object.id} className={object.locked ? 'object-locked' : ''}>{content}{hit}</g>;
+    return <g key={sourceObject.id} data-object-id={sourceObject.id} className={sourceObject.locked ? 'object-locked' : ''}>{content}{hit}</g>;
   }
 
   function selectionOverlay() {
-    if (!selectedObject) return null;
-    const bounds = getObjectBounds(selectedObject);
+    if (!selectedResolvedObjects.length) return null;
     const pad = 8 / view.zoom;
-    return <g data-ui-only="true" pointerEvents="none"><rect x={bounds.x - pad} y={bounds.y - pad} width={Math.max(1, bounds.width + pad * 2)} height={Math.max(1, bounds.height + pad * 2)} fill="none" stroke="#6455ea" strokeWidth={1.6} strokeDasharray="7 5" className="selection-outline" vectorEffect="non-scaling-stroke" /></g>;
+    const radius = 6 / view.zoom;
+    if (selectedResolvedObjects.length > 1) {
+      const bounds = unionBounds(selectedResolvedObjects);
+      if (!bounds) return null;
+      return (
+        <g data-ui-only="true" pointerEvents="none">
+          {selectedResolvedObjects.map((object) => {
+            const corners = getDisplayCorners(object);
+            return <polygon key={object.id} points={corners.map((point) => `${point.x},${point.y}`).join(' ')} fill="none" stroke="#9b91ef" strokeWidth={1.1} strokeDasharray="4 4" vectorEffect="non-scaling-stroke" />;
+          })}
+          <rect x={bounds.x - pad} y={bounds.y - pad} width={Math.max(1, bounds.width + pad * 2)} height={Math.max(1, bounds.height + pad * 2)} fill="none" stroke="#5648df" strokeWidth={1.8} strokeDasharray="8 5" vectorEffect="non-scaling-stroke" />
+        </g>
+      );
+    }
+
+    if (!selectedObject || !selectedResolvedObject) return null;
+    const object = selectedResolvedObject;
+    const handle = (name: ResizeHandle, point: Point) => (
+      <circle
+        key={name}
+        data-resize-handle={name}
+        data-resize-object-id={selectedObject.id}
+        className={`resize-handle resize-${name}`}
+        cx={point.x}
+        cy={point.y}
+        r={radius}
+        fill="#ffffff"
+        stroke="#5648df"
+        strokeWidth={1.8}
+        vectorEffect="non-scaling-stroke"
+        pointerEvents="all"
+      />
+    );
+    if (object.type === 'line' || object.type === 'arrow' || object.type === 'segment') {
+      return (
+        <g data-ui-only="true">
+          <line x1={object.start.x} y1={object.start.y} x2={object.end.x} y2={object.end.y} fill="none" stroke="#6455ea" strokeWidth={1.6} strokeDasharray="7 5" vectorEffect="non-scaling-stroke" pointerEvents="none" />
+          {!selectedObject.locked && <>{handle('start', object.start)}{handle('end', object.end)}</>}
+        </g>
+      );
+    }
+
+    const corners = getDisplayCorners(object);
+    const handles = selectedObject.locked ? null : <>
+      {handle('nw', corners[0])}
+      {handle('ne', corners[1])}
+      {handle('se', corners[2])}
+      {handle('sw', corners[3])}
+    </>;
+    const polygonVertices = object.type === 'polygon' && !selectedObject.locked ? object.points.map((point) => displayedPoint(object, point)) : [];
+    return (
+      <g data-ui-only="true">
+        <polygon points={corners.map((point) => `${point.x},${point.y}`).join(' ')} fill="none" stroke="#6455ea" strokeWidth={1.6} strokeDasharray="7 5" className="selection-outline" vectorEffect="non-scaling-stroke" pointerEvents="none" />
+        {handles}
+        {polygonVertices.map((point, index) => (
+          <circle
+            key={`vertex-${index}`}
+            data-vertex-index={index}
+            data-vertex-object-id={selectedObject.id}
+            className="vertex-handle"
+            cx={point.x}
+            cy={point.y}
+            r={5.2 / view.zoom}
+            fill="#fff7df"
+            stroke="#df8a22"
+            strokeWidth={1.7}
+            vectorEffect="non-scaling-stroke"
+            pointerEvents="all"
+          />
+        ))}
+        {polygonVertices.map((point, index) => {
+          const next = polygonVertices[(index + 1) % polygonVertices.length];
+          const midpoint = { x: (point.x + next.x) / 2, y: (point.y + next.y) / 2 };
+          return <rect key={`add-${index}`} data-vertex-add-index={index + 1} data-vertex-object-id={selectedObject.id} className="vertex-add-handle" x={midpoint.x - 3.8 / view.zoom} y={midpoint.y - 3.8 / view.zoom} width={7.6 / view.zoom} height={7.6 / view.zoom} transform={`rotate(45 ${midpoint.x} ${midpoint.y})`} fill="#ffffff" stroke="#df8a22" strokeWidth={1.4} vectorEffect="non-scaling-stroke" pointerEvents="all" />;
+        })}
+      </g>
+    );
   }
+
 
   function renderAxes() {
     if (!project.canvas.axesVisible) return null;
@@ -1031,6 +1786,8 @@ function App() {
               onPointerUp={endPointer}
               onPointerCancel={endPointer}
               onWheel={onWheel}
+              onContextMenu={(event) => event.preventDefault()}
+              onDragStart={(event) => event.preventDefault()}
               onDoubleClick={() => {
                 if (activeTool !== 'polygon') return;
                 setPolygonPoints((points) => {
@@ -1057,6 +1814,12 @@ function App() {
               {project.objects.map(renderObject)}
               {polygonPoints.length > 0 && <g data-ui-only="true" pointerEvents="none"><polyline points={polygonPoints.map((point) => `${point.x},${point.y}`).join(' ')} fill="none" stroke="#6d5dfc" strokeWidth={2} strokeDasharray="7 5" vectorEffect="non-scaling-stroke" />{polygonPoints.map((point, index) => <circle key={index} cx={point.x} cy={point.y} r={5 / view.zoom} fill="#6d5dfc" />)}</g>}
               {zoomBox && <rect data-ui-only="true" pointerEvents="none" {...normalizeRect(zoomBox.start, zoomBox.end)} fill="rgba(86,72,223,.12)" stroke="#5648df" strokeWidth={1.5} strokeDasharray="7 5" vectorEffect="non-scaling-stroke" />}
+              {selectionBox && <rect data-ui-only="true" pointerEvents="none" {...normalizeRect(selectionBox.start, selectionBox.end)} fill="rgba(86,72,223,.09)" stroke="#5648df" strokeWidth={1.4} strokeDasharray="6 4" vectorEffect="non-scaling-stroke" />}
+              {snapIndicator && <g data-ui-only="true" pointerEvents="none" className={`snap-indicator snap-${snapIndicator.kind ?? 'grid'}`}>
+                <circle cx={snapIndicator.point.x} cy={snapIndicator.point.y} r={7 / view.zoom} fill="rgba(255,255,255,.86)" stroke="#ee7b2d" strokeWidth={1.6} vectorEffect="non-scaling-stroke" />
+                <line x1={snapIndicator.point.x - 10 / view.zoom} y1={snapIndicator.point.y} x2={snapIndicator.point.x + 10 / view.zoom} y2={snapIndicator.point.y} stroke="#ee7b2d" strokeWidth={1.2} vectorEffect="non-scaling-stroke" />
+                <line x1={snapIndicator.point.x} y1={snapIndicator.point.y - 10 / view.zoom} x2={snapIndicator.point.x} y2={snapIndicator.point.y + 10 / view.zoom} stroke="#ee7b2d" strokeWidth={1.2} vectorEffect="non-scaling-stroke" />
+              </g>}
               {selectionOverlay()}
             </svg>
           </div>
@@ -1067,10 +1830,12 @@ function App() {
         <aside className="side-panels">
           <section className={`side-panel tweak-panel ${panelCollapsed.tweak ? 'collapsed' : ''}`}>
             <button type="button" className="panel-heading" aria-expanded={!panelCollapsed.tweak} title={panelCollapsed.tweak ? 'ツウィークを開く' : 'ツウィークを畳む'} onClick={() => setPanelCollapsed((current) => ({ ...current, tweak: !current.tweak }))}><span className="panel-title">ツウィーク</span><span className="panel-short">T</span><Icon name="chevron" size={18} /></button>
-            {!panelCollapsed.tweak && <div className="panel-content tweak-content"><TweakPanel
+            <div className="panel-content tweak-content" aria-hidden={panelCollapsed.tweak}><TweakPanel
               project={project}
               activeTool={activeTool}
               selected={selectedObject}
+              selectedObjects={selectedObjects}
+              resolvedSelected={selectedResolvedObject}
               presets={presets}
               coordinateUnitPx={coordinateUnitPx}
               worldToCoordinate={worldToCoordinate}
@@ -1080,14 +1845,16 @@ function App() {
               onObjectChange={(updater) => selectedObject && updateObject(selectedObject.id, updater)}
               onDelete={deleteSelected}
               onDuplicate={duplicateSelected}
+              onAlign={alignSelected}
+              onArrange={arrangeSelected}
               onFinalizePolygon={finalizePolygon}
               polygonCount={polygonPoints.length}
               onCreateFromCoordinates={addObjectFromCoordinates}
-            /></div>}
+            /></div>
           </section>
           <section className={`side-panel expression-panel ${panelCollapsed.expressions ? 'collapsed' : ''}`}>
             <button type="button" className="panel-heading" aria-expanded={!panelCollapsed.expressions} title={panelCollapsed.expressions ? 'fウィンドウを開く' : 'fウィンドウを畳む'} onClick={() => setPanelCollapsed((current) => ({ ...current, expressions: !current.expressions }))}><span className="panel-title">f　数式・変数</span><span className="panel-short">f</span><Icon name="chevron" size={18} /></button>
-            {!panelCollapsed.expressions && <div className="panel-content"><ExpressionPanel
+            <div className="panel-content" aria-hidden={panelCollapsed.expressions}><ExpressionPanel
               project={project}
               onAddVariable={addVariable}
               onUpdateVariable={updateVariable}
@@ -1098,7 +1865,7 @@ function App() {
               onEditDetailed={(expression) => setModal({ kind: 'math', point: { x: 0, y: 0 }, value: expression.source, expressionId: expression.id })}
               onPlace={placeExpression}
               onStartSliderHistory={() => commitHistory(project)}
-            /></div>}
+            /></div>
           </section>
         </aside>
       </main>
@@ -1119,6 +1886,8 @@ interface TweakPanelProps {
   project: GraphantaProject;
   activeTool: ToolId;
   selected: GraphicObject | null;
+  selectedObjects: GraphicObject[];
+  resolvedSelected: GraphicObject | null;
   presets: ToolPresets;
   coordinateUnitPx: number;
   worldToCoordinate: (point: Point) => Point;
@@ -1128,16 +1897,22 @@ interface TweakPanelProps {
   onObjectChange: (updater: (object: GraphicObject) => GraphicObject) => void;
   onDelete: () => void;
   onDuplicate: () => void;
+  onAlign: (mode: AlignMode) => void;
+  onArrange: (mode: ArrangeMode) => void;
   onFinalizePolygon: () => void;
   polygonCount: number;
   onCreateFromCoordinates: (tool: 'line' | 'arrow' | 'ellipse') => void;
 }
 
 function TweakPanel(props: TweakPanelProps) {
-  const { project, activeTool, selected, presets, coordinateUnitPx, worldToCoordinate, coordinateToWorld, onPresetChange, onCanvasChange, onObjectChange, onDelete, onDuplicate, onFinalizePolygon, polygonCount, onCreateFromCoordinates } = props;
+  const { project, activeTool, selected, selectedObjects, resolvedSelected, presets, coordinateUnitPx, worldToCoordinate, coordinateToWorld, onPresetChange, onCanvasChange, onObjectChange, onDelete, onDuplicate, onAlign, onArrange, onFinalizePolygon, polygonCount, onCreateFromCoordinates } = props;
   const navigationMode = activeTool === 'select' || activeTool === 'pan' || activeTool === 'zoom';
-  const showSelected = Boolean(selected) && activeTool !== 'pan' && activeTool !== 'zoom' && (activeTool === 'select' || (selected ? toolForObject(selected) === activeTool : false));
+  const showSelected = selectedObjects.length === 1 && Boolean(selected) && activeTool !== 'pan' && activeTool !== 'zoom' && (activeTool === 'select' || (selected ? toolForObject(selected) === activeTool : false));
   const patchObject = (changes: Partial<GraphicObject>) => onObjectChange((object) => ({ ...object, ...changes } as GraphicObject));
+
+  if (activeTool === 'select' && selectedObjects.length > 1) {
+    return <MultiSelectionEditor count={selectedObjects.length} onAlign={onAlign} onArrange={onArrange} onDelete={onDelete} onDuplicate={onDuplicate} />;
+  }
 
   if (navigationMode && !showSelected) {
     const tick = project.canvas.tickInterval;
@@ -1165,12 +1940,13 @@ function TweakPanel(props: TweakPanelProps) {
             <Toggle label="吸着" checked={project.canvas.snapGrid} onChange={(checked) => onCanvasChange({ snapGrid: checked })} />
           </>
         ) : null}
+        <Toggle label="点・交点・辺へ吸着" checked={project.canvas.snapPoints} onChange={(checked) => onCanvasChange({ snapPoints: checked })} />
       </>
     );
   }
 
   if (showSelected && selected) {
-    return <SelectedObjectEditor object={selected} coordinateUnitPx={coordinateUnitPx} worldToCoordinate={worldToCoordinate} coordinateToWorld={coordinateToWorld} onPatch={patchObject} onChange={onObjectChange} onDelete={onDelete} onDuplicate={onDuplicate} />;
+    return <SelectedObjectEditor object={selected} resolvedObject={resolvedSelected ?? selected} variables={project.variables} coordinateUnitPx={coordinateUnitPx} worldToCoordinate={worldToCoordinate} coordinateToWorld={coordinateToWorld} onPatch={patchObject} onChange={onObjectChange} onDelete={onDelete} onDuplicate={onDuplicate} />;
   }
 
   if (activeTool === 'pen') return <><PresetHeader label="フリーハンド" /><LineStyleEditor value={presets.pen} onChange={(patch) => onPresetChange('pen', patch)} /></>;
@@ -1180,8 +1956,8 @@ function TweakPanel(props: TweakPanelProps) {
       <>
         <PresetHeader label={TOOL_LABELS[activeTool]} />
         <LineStyleEditor value={preset} onChange={(patch) => onPresetChange(activeTool, patch)} />
-        <PointField label="始点" value={preset.start} onChange={(point) => onPresetChange(activeTool, { start: point })} />
-        <PointField label="終点" value={preset.end} onChange={(point) => onPresetChange(activeTool, { end: point })} />
+        <ExpressionPointField label="始点" value={preset.start} onChange={(point) => onPresetChange(activeTool, { start: point })} />
+        <ExpressionPointField label="終点" value={preset.end} onChange={(point) => onPresetChange(activeTool, { end: point })} />
         {activeTool === 'arrow' && <Field label="矢じり"><input type="range" min="4" max="60" step="1" value={presets.arrow.arrowSize} onChange={(event) => onPresetChange('arrow', { arrowSize: Number(event.target.value) })} /><output>{presets.arrow.arrowSize}</output></Field>}
         <button type="button" className="primary-button full" onClick={() => onCreateFromCoordinates(activeTool)}>座標から作成</button>
       </>
@@ -1193,9 +1969,11 @@ function TweakPanel(props: TweakPanelProps) {
       <>
         <PresetHeader label="円・だ円" />
         <ShapeStyleEditor value={presets.ellipse} onChange={(patch) => onPresetChange('ellipse', patch)} />
-        <PointField label="中心" value={presets.ellipse.center} onChange={(center) => onPresetChange('ellipse', { center })} />
-        <Field label="半径X"><RangeNumber value={presets.ellipse.rx} min={0.1} max={20} step={0.1} onChange={(rx) => onPresetChange('ellipse', { rx })} /></Field>
-        <Field label="半径Y"><RangeNumber value={presets.ellipse.ry} min={0.1} max={20} step={0.1} onChange={(ry) => onPresetChange('ellipse', { ry })} /></Field>
+        <ExpressionPointField label="中心" value={presets.ellipse.center} onChange={(center) => onPresetChange('ellipse', { center })} />
+        <Field label="長軸方向"><select value={presets.ellipse.majorAxis} onChange={(event) => onPresetChange('ellipse', { majorAxis: event.target.value as 'x' | 'y' })}><option value="x">横</option><option value="y">縦</option></select></Field>
+        <Field label="長半径"><ExpressionRange value={presets.ellipse.majorRadiusExpr} variables={project.variables} fallback={2} min={0.1} max={50} step={0.1} onChange={(majorRadiusExpr) => onPresetChange('ellipse', { majorRadiusExpr })} /></Field>
+        <Field label="短半径"><ExpressionRange value={presets.ellipse.minorRadiusExpr} variables={project.variables} fallback={2} min={0.1} max={50} step={0.1} onChange={(minorRadiusExpr) => onPresetChange('ellipse', { minorRadiusExpr, eccentricityExpr: '0' })} /></Field>
+        <Field label="離心率"><ExpressionRange value={presets.ellipse.eccentricityExpr} variables={project.variables} fallback={0} min={0} max={0.999} step={0.01} onChange={(eccentricityExpr) => onPresetChange('ellipse', { eccentricityExpr })} /></Field>
         <button type="button" className="primary-button full" onClick={() => onCreateFromCoordinates('ellipse')}>数値から作成</button>
       </>
     );
@@ -1231,8 +2009,44 @@ function ShapeStyleEditor({ value, onChange }: { value: StylePreset; onChange: (
   );
 }
 
-function SelectedObjectEditor({ object, coordinateUnitPx, worldToCoordinate, coordinateToWorld, onPatch, onChange, onDelete, onDuplicate }: {
+function MultiSelectionEditor({ count, onAlign, onArrange, onDelete, onDuplicate }: {
+  count: number;
+  onAlign: (mode: AlignMode) => void;
+  onArrange: (mode: ArrangeMode) => void;
+  onDelete: () => void;
+  onDuplicate: () => void;
+}) {
+  return (
+    <>
+      <div className="selected-type"><span>複数選択</span><code>{count}要素</code></div>
+      <div className="inline-actions"><button type="button" onClick={onDuplicate}><Icon name="duplicate" size={18} />複製</button><button type="button" className="danger" onClick={onDelete}><Icon name="delete" size={18} />削除</button></div>
+      <div className="subheading">整列</div>
+      <div className="multi-action-grid">
+        <button type="button" onClick={() => onAlign('left')}>左</button>
+        <button type="button" onClick={() => onAlign('center')}>左右中央</button>
+        <button type="button" onClick={() => onAlign('right')}>右</button>
+        <button type="button" onClick={() => onAlign('top')}>上</button>
+        <button type="button" onClick={() => onAlign('middle')}>上下中央</button>
+        <button type="button" onClick={() => onAlign('bottom')}>下</button>
+        <button type="button" onClick={() => onAlign('distributeX')} disabled={count < 3}>横に等間隔</button>
+        <button type="button" onClick={() => onAlign('distributeY')} disabled={count < 3}>縦に等間隔</button>
+      </div>
+      <div className="subheading">重なり順</div>
+      <div className="multi-action-grid two-columns">
+        <button type="button" onClick={() => onArrange('front')}>最前面</button>
+        <button type="button" onClick={() => onArrange('forward')}>一つ前へ</button>
+        <button type="button" onClick={() => onArrange('backward')}>一つ後ろへ</button>
+        <button type="button" onClick={() => onArrange('back')}>最背面</button>
+      </div>
+      <p className="panel-hint">Shift＋クリックで選択を追加・解除できます。空白部分をドラッグすると範囲選択になります。</p>
+    </>
+  );
+}
+
+function SelectedObjectEditor({ object, resolvedObject, variables, coordinateUnitPx, worldToCoordinate, onPatch, onChange, onDelete, onDuplicate }: {
   object: GraphicObject;
+  resolvedObject: GraphicObject;
+  variables: VariableDef[];
   coordinateUnitPx: number;
   worldToCoordinate: (point: Point) => Point;
   coordinateToWorld: (point: Point) => Point;
@@ -1241,75 +2055,96 @@ function SelectedObjectEditor({ object, coordinateUnitPx, worldToCoordinate, coo
   onDelete: () => void;
   onDuplicate: () => void;
 }) {
-  const setRotation = (angle: number) => onChange((current) => {
-    const next = normalizeAngle(angle);
-    if (current.type === 'line' || current.type === 'arrow' || current.type === 'segment') {
-      const center = { x: (current.start.x + current.end.x) / 2, y: (current.start.y + current.end.y) / 2 };
-      const length = Math.hypot(current.end.x - current.start.x, current.end.y - current.start.y);
-      const vector = { x: Math.cos(next) * length / 2, y: Math.sin(next) * length / 2 };
-      return { ...current, start: { x: center.x - vector.x, y: center.y - vector.y }, end: { x: center.x + vector.x, y: center.y + vector.y } };
-    }
-    if ('rotation' in current) return { ...current, rotation: next } as GraphicObject;
-    return current;
+  const setBinding = (key: string, value: string, clearKeys: string[] = []) => onChange((current) => {
+    const bindings = { ...(current.bindings ?? {}) };
+    clearKeys.forEach((item) => delete bindings[item]);
+    if (value.trim()) bindings[key] = sanitizeExpression(value);
+    else delete bindings[key];
+    return { ...current, bindings } as GraphicObject;
   });
-  const rotation = object.type === 'line' || object.type === 'arrow' || object.type === 'segment' ? angleOf(object.start, object.end) : ('rotation' in object ? object.rotation ?? 0 : 0);
-  const canRotate = object.type === 'pen' || object.type === 'line' || object.type === 'arrow' || object.type === 'rectangle' || object.type === 'ellipse' || object.type === 'segment';
-  const circle = object.type === 'ellipse' && Math.abs(object.rx - object.ry) < 0.001;
+  const rotationFallback = resolvedObject.type === 'line' || resolvedObject.type === 'arrow' || resolvedObject.type === 'segment'
+    ? coordinateAngleDegrees(resolvedObject.start, resolvedObject.end)
+    : ('rotation' in resolvedObject ? normalizeDegrees(-(resolvedObject.rotation ?? 0) * RAD_TO_DEG) : 0);
+  const rotationExpression = bindingExpression(object, 'rotationDeg', rotationFallback);
+  const canRotate = object.type === 'pen' || object.type === 'line' || object.type === 'arrow' || object.type === 'rectangle' || object.type === 'ellipse' || object.type === 'polygon' || object.type === 'array' || object.type === 'segment';
+  const circle = resolvedObject.type === 'ellipse' && Math.abs(resolvedObject.rx - resolvedObject.ry) < 0.001;
   return (
     <>
       <div className="selected-type"><span>{TOOL_LABELS[toolForObject(object)]}</span><code>{object.id.slice(0, 8)}</code></div>
       <div className="inline-actions"><button type="button" onClick={onDuplicate}><Icon name="duplicate" size={18} />複製</button><button type="button" className="danger" onClick={onDelete}><Icon name="delete" size={18} />削除</button></div>
       {(object.type === 'rectangle' || object.type === 'ellipse' || object.type === 'polygon') ? <ShapeStyleEditor value={object} onChange={(patch) => onPatch(patch as Partial<GraphicObject>)} /> : <LineStyleEditor value={object} onChange={(patch) => onPatch(patch as Partial<GraphicObject>)} />}
-      {canRotate && <RotationField value={rotation} disabled={circle} onChange={setRotation} />}
+      {canRotate && <RotationField value={rotationExpression} variables={variables} fallback={rotationFallback} disabled={circle} onChange={(value) => setBinding('rotationDeg', value)} />}
       <Toggle label="固定する" checked={Boolean(object.locked)} onChange={(checked) => onPatch({ locked: checked })} />
-      {(object.type === 'line' || object.type === 'arrow') && <LineCoordinateFields object={object} worldToCoordinate={worldToCoordinate} coordinateToWorld={coordinateToWorld} onChange={onChange} />}
+      {(object.type === 'line' || object.type === 'arrow' || object.type === 'segment') && (resolvedObject.type === 'line' || resolvedObject.type === 'arrow' || resolvedObject.type === 'segment') && <BoundLineCoordinateFields object={object} resolvedObject={resolvedObject} worldToCoordinate={worldToCoordinate} onBindingChange={setBinding} />}
       {object.type === 'arrow' && <Field label="矢じり"><RangeNumber value={object.arrowSize ?? 14} min={4} max={60} step={1} onChange={(arrowSize) => onPatch({ arrowSize } as Partial<GraphicObject>)} /></Field>}
-      {object.type === 'rectangle' && <Field label="角の丸み"><AsciiNumber value={object.radius} min={0} max={100} onChange={(radius) => onPatch({ radius } as Partial<GraphicObject>)} /></Field>}
-      {object.type === 'ellipse' && <EllipseFields object={object} coordinateUnitPx={coordinateUnitPx} worldToCoordinate={worldToCoordinate} coordinateToWorld={coordinateToWorld} onChange={onChange} />}
-      {object.type === 'text' && <><Field label="文字"><textarea value={object.text} onChange={(event) => onPatch({ text: event.target.value } as Partial<GraphicObject>)} /></Field><Field label="文字サイズ"><AsciiNumber value={object.fontSize} min={8} max={160} onChange={(fontSize) => onPatch({ fontSize } as Partial<GraphicObject>)} /></Field></>}
-      {object.type === 'math' && <><Field label="数式"><AsciiText value={object.expression} onChange={(expression) => onPatch({ expression } as Partial<GraphicObject>)} /></Field><Field label="文字サイズ"><AsciiNumber value={object.fontSize} min={8} max={160} onChange={(fontSize) => onPatch({ fontSize } as Partial<GraphicObject>)} /></Field></>}
-      {object.type === 'array' && <ArrayFields value={object} onChange={(patch) => onPatch(patch as Partial<GraphicObject>)} />}
+      {object.type === 'rectangle' && resolvedObject.type === 'rectangle' && <><BoundBoxFields object={object} resolvedObject={resolvedObject} coordinateUnitPx={coordinateUnitPx} worldToCoordinate={worldToCoordinate} onBindingChange={setBinding} /><Field label="角の丸み"><AsciiNumber value={object.radius} min={0} max={100} onChange={(radius) => onPatch({ radius } as Partial<GraphicObject>)} /></Field></>}
+      {object.type === 'ellipse' && resolvedObject.type === 'ellipse' && <BoundEllipseFields object={object} resolvedObject={resolvedObject} variables={variables} coordinateUnitPx={coordinateUnitPx} worldToCoordinate={worldToCoordinate} onBindingChange={setBinding} />}
+      {object.type === 'text' && resolvedObject.type === 'text' && <><BoundPositionFields object={object} resolvedObject={resolvedObject} worldToCoordinate={worldToCoordinate} onBindingChange={setBinding} /><Field label="文字"><textarea value={object.text} onChange={(event) => onPatch({ text: event.target.value } as Partial<GraphicObject>)} /></Field><Field label="文字サイズ"><AsciiNumber value={object.fontSize} min={8} max={160} onChange={(fontSize) => onPatch({ fontSize } as Partial<GraphicObject>)} /></Field></>}
+      {object.type === 'math' && resolvedObject.type === 'math' && <><BoundPositionFields object={object} resolvedObject={resolvedObject} worldToCoordinate={worldToCoordinate} onBindingChange={setBinding} /><Field label="数式"><AsciiText value={object.expression} onChange={(expression) => onPatch({ expression } as Partial<GraphicObject>)} /></Field><Field label="文字サイズ"><AsciiNumber value={object.fontSize} min={8} max={160} onChange={(fontSize) => onPatch({ fontSize } as Partial<GraphicObject>)} /></Field></>}
+      {object.type === 'array' && resolvedObject.type === 'array' && <><BoundBoxFields object={object} resolvedObject={resolvedObject} coordinateUnitPx={coordinateUnitPx} worldToCoordinate={worldToCoordinate} onBindingChange={setBinding} /><ArrayFields value={object} onChange={(patch) => onPatch(patch as Partial<GraphicObject>)} /></>}
       {object.type === 'segment' && <MeasureFields value={object} onChange={(patch) => onPatch(patch as Partial<GraphicObject>)} />}
     </>
   );
 }
 
-function RotationField({ value, disabled, onChange }: { value: number; disabled?: boolean; onChange: (value: number) => void }) {
-  return <Field label="回転"><div className="range-direct"><input type="range" min={-Math.PI} max={Math.PI} step="0.01" value={normalizeAngle(value)} disabled={disabled} onChange={(event) => onChange(Number(event.target.value))} /><AsciiNumber value={roundValue(normalizeAngle(value), 3)} min={-Math.PI} max={Math.PI} step={0.01} disabled={disabled} onChange={onChange} /><span>rad</span></div></Field>;
+function RotationField({ value, variables, fallback, disabled, onChange }: { value: string; variables: VariableDef[]; fallback: number; disabled?: boolean; onChange: (value: string) => void }) {
+  const evaluated = normalizeDegrees(resolveNumber(value, variables, fallback));
+  return <Field label="回転"><div className="range-direct expression-range"><input type="range" min={-180} max={180} step="1" value={evaluated} disabled={disabled} onChange={(event) => onChange(String(Number(event.target.value)))} /><AsciiText value={value} disabled={disabled} onChange={onChange} /><span>°</span></div></Field>;
 }
 
-function LineCoordinateFields({ object, worldToCoordinate, coordinateToWorld, onChange }: { object: LineObject; worldToCoordinate: (point: Point) => Point; coordinateToWorld: (point: Point) => Point; onChange: (updater: (object: GraphicObject) => GraphicObject) => void }) {
-  const start = worldToCoordinate(object.start);
-  const end = worldToCoordinate(object.end);
-  const setPoint = (key: 'start' | 'end', point: Point) => onChange((current) => current.type === 'line' || current.type === 'arrow' ? { ...current, [key]: coordinateToWorld(point) } : current);
-  return <><PointField label="始点" value={start} onChange={(point) => setPoint('start', point)} /><PointField label="終点" value={end} onChange={(point) => setPoint('end', point)} /></>;
+function BoundLineCoordinateFields({ object, resolvedObject, worldToCoordinate, onBindingChange }: {
+  object: LineObject | SegmentObject;
+  resolvedObject: LineObject | SegmentObject;
+  worldToCoordinate: (point: Point) => Point;
+  onBindingChange: (key: string, value: string, clearKeys?: string[]) => void;
+}) {
+  const start = worldToCoordinate(resolvedObject.start);
+  const end = worldToCoordinate(resolvedObject.end);
+  return <><ExpressionPointField label="始点" value={{ x: bindingExpression(object, 'startX', start.x), y: bindingExpression(object, 'startY', start.y) }} onChange={(point) => { onBindingChange('startX', point.x, ['rotationDeg']); onBindingChange('startY', point.y, ['rotationDeg']); }} /><ExpressionPointField label="終点" value={{ x: bindingExpression(object, 'endX', end.x), y: bindingExpression(object, 'endY', end.y) }} onChange={(point) => { onBindingChange('endX', point.x, ['rotationDeg']); onBindingChange('endY', point.y, ['rotationDeg']); }} /></>;
 }
 
-function EllipseFields({ object, coordinateUnitPx, worldToCoordinate, coordinateToWorld, onChange }: { object: EllipseObject; coordinateUnitPx: number; worldToCoordinate: (point: Point) => Point; coordinateToWorld: (point: Point) => Point; onChange: (updater: (object: GraphicObject) => GraphicObject) => void }) {
-  const center = worldToCoordinate({ x: object.cx, y: object.cy });
-  const rx = object.rx / coordinateUnitPx;
-  const ry = object.ry / coordinateUnitPx;
-  const isCircle = Math.abs(rx - ry) < 0.001;
-  const major = Math.max(rx, ry);
-  const minor = Math.min(rx, ry);
+function BoundBoxFields({ object, resolvedObject, coordinateUnitPx, worldToCoordinate, onBindingChange }: {
+  object: RectangleObject | ArrayObject;
+  resolvedObject: RectangleObject | ArrayObject;
+  coordinateUnitPx: number;
+  worldToCoordinate: (point: Point) => Point;
+  onBindingChange: (key: string, value: string, clearKeys?: string[]) => void;
+}) {
+  const topLeft = worldToCoordinate({ x: resolvedObject.x, y: resolvedObject.y });
+  return <><ExpressionPointField label="左上" value={{ x: bindingExpression(object, 'x', topLeft.x), y: bindingExpression(object, 'y', topLeft.y) }} onChange={(point) => { onBindingChange('x', point.x); onBindingChange('y', point.y); }} /><Field label="幅"><AsciiText value={bindingExpression(object, 'width', resolvedObject.width / coordinateUnitPx)} onChange={(value) => onBindingChange('width', value)} /></Field><Field label="高さ"><AsciiText value={bindingExpression(object, 'height', resolvedObject.height / coordinateUnitPx)} onChange={(value) => onBindingChange('height', value)} /></Field></>;
+}
+
+function BoundPositionFields({ object, resolvedObject, worldToCoordinate, onBindingChange }: {
+  object: TextObject | MathObject;
+  resolvedObject: TextObject | MathObject;
+  worldToCoordinate: (point: Point) => Point;
+  onBindingChange: (key: string, value: string, clearKeys?: string[]) => void;
+}) {
+  const position = worldToCoordinate({ x: resolvedObject.x, y: resolvedObject.y });
+  return <ExpressionPointField label="位置" value={{ x: bindingExpression(object, 'x', position.x), y: bindingExpression(object, 'y', position.y) }} onChange={(point) => { onBindingChange('x', point.x); onBindingChange('y', point.y); }} />;
+}
+
+function BoundEllipseFields({ object, resolvedObject, variables, coordinateUnitPx, worldToCoordinate, onBindingChange }: {
+  object: EllipseObject;
+  resolvedObject: EllipseObject;
+  variables: VariableDef[];
+  coordinateUnitPx: number;
+  worldToCoordinate: (point: Point) => Point;
+  onBindingChange: (key: string, value: string, clearKeys?: string[]) => void;
+}) {
+  const center = worldToCoordinate({ x: resolvedObject.cx, y: resolvedObject.cy });
+  const axis = object.majorAxis ?? (resolvedObject.rx >= resolvedObject.ry ? 'x' : 'y');
+  const major = (axis === 'x' ? resolvedObject.rx : resolvedObject.ry) / coordinateUnitPx;
+  const minor = (axis === 'x' ? resolvedObject.ry : resolvedObject.rx) / coordinateUnitPx;
   const eccentricity = major > 0 ? Math.sqrt(Math.max(0, 1 - (minor * minor) / (major * major))) : 0;
-  const patch = (changes: Partial<EllipseObject>) => onChange((current) => current.type === 'ellipse' ? { ...current, ...changes } : current);
-  const setCenter = (point: Point) => { const world = coordinateToWorld(point); patch({ cx: world.x, cy: world.y }); };
-  if (isCircle) return <><PointField label="中心" value={center} onChange={setCenter} /><Field label="半径"><RangeNumber value={roundValue(rx)} min={0.1} max={50} step={0.1} onChange={(radius) => patch({ rx: radius * coordinateUnitPx, ry: radius * coordinateUnitPx })} /></Field></>;
-  const setMajor = (value: number) => patch(rx >= ry ? { rx: value * coordinateUnitPx } : { ry: value * coordinateUnitPx });
-  const setMinor = (value: number) => patch(rx >= ry ? { ry: Math.min(value, major) * coordinateUnitPx } : { rx: Math.min(value, major) * coordinateUnitPx });
-  const setEccentricity = (value: number) => {
-    const e = clamp(value, 0, 0.999);
-    setMinor(major * Math.sqrt(1 - e * e));
-  };
-  return <><PointField label="中心" value={center} onChange={setCenter} /><Field label="長半径"><RangeNumber value={roundValue(major)} min={0.1} max={50} step={0.1} onChange={setMajor} /></Field><Field label="短半径"><RangeNumber value={roundValue(minor)} min={0.1} max={major} step={0.1} onChange={setMinor} /></Field><Field label="離心率"><RangeNumber value={roundValue(eccentricity, 3)} min={0} max={0.999} step={0.01} onChange={setEccentricity} /></Field></>;
+  return <><ExpressionPointField label="中心" value={{ x: bindingExpression(object, 'centerX', center.x), y: bindingExpression(object, 'centerY', center.y) }} onChange={(point) => { onBindingChange('centerX', point.x); onBindingChange('centerY', point.y); }} /><Field label="長半径"><ExpressionRange value={bindingExpression(object, 'majorRadius', major)} variables={variables} fallback={major} min={0.1} max={50} step={0.1} onChange={(value) => onBindingChange('majorRadius', value)} /></Field><Field label="短半径"><ExpressionRange value={bindingExpression(object, 'minorRadius', minor)} variables={variables} fallback={minor} min={0.1} max={50} step={0.1} onChange={(value) => onBindingChange('minorRadius', value, ['eccentricity'])} /></Field><Field label="離心率"><ExpressionRange value={bindingExpression(object, 'eccentricity', eccentricity)} variables={variables} fallback={eccentricity} min={0} max={0.999} step={0.01} onChange={(value) => onBindingChange('eccentricity', value)} /></Field></>;
 }
 
 function ArrayFields({ value, onChange }: { value: Pick<ArrayObject, 'rowsExpr' | 'colsExpr' | 'symbol' | 'symbolSize'>; onChange: (patch: Partial<ArrayObject>) => void }) {
   return <><Field label="行数"><AsciiText value={value.rowsExpr} onChange={(rowsExpr) => onChange({ rowsExpr })} /></Field><Field label="列数"><AsciiText value={value.colsExpr} onChange={(colsExpr) => onChange({ colsExpr })} /></Field><Field label="シンボル"><select value={value.symbol} onChange={(event) => onChange({ symbol: event.target.value as ArrayObject['symbol'] })}><option value="circle">円</option><option value="square">四角</option><option value="dot">点</option><option value="cross">×</option></select></Field><Field label="大きさ"><RangeNumber value={value.symbolSize} min={2} max={28} step={1} onChange={(symbolSize) => onChange({ symbolSize })} /></Field></>;
 }
 
-type MeasureValue = Pick<SegmentObject, 'mode' | 'tickIntervalExpr' | 'labelIntervalExpr' | 'maxValueExpr' | 'divisionPercents'>;
+type MeasureValue = Pick<SegmentObject, 'mode' | 'tickIntervalExpr' | 'labelIntervalExpr' | 'maxValueExpr' | 'divisionPercents' | 'showMaxValue'>;
 
 function rebalanceDivisions(values: number[], index: number, nextValue: number): number[] {
   const next = values.map((value) => clamp(value, 0, 100));
@@ -1345,13 +2180,18 @@ function MeasureFields({ value, onChange }: { value: MeasureValue; onChange: (pa
         <button type="button" className={value.mode === 'tape' ? 'is-active' : ''} onClick={() => onChange({ mode: 'tape' })}><Icon name="tape" /><span>テープ図</span></button>
         <button type="button" className={value.mode === 'segment' ? 'is-active' : ''} onClick={() => onChange({ mode: 'segment' })}><Icon name="measureSegment" /><span>線分図</span></button>
       </div>
-      {value.mode === 'numberLine' ? <><Field label="目盛り"><AsciiText value={value.tickIntervalExpr} invalid={invalid && tick <= 0} onChange={(tickIntervalExpr) => onChange({ tickIntervalExpr })} /></Field><Field label="数値"><AsciiText value={value.labelIntervalExpr} invalid={invalid} onChange={(labelIntervalExpr) => onChange({ labelIntervalExpr })} /></Field>{invalid && <p className="field-error">「数値」は「目盛り」の整数倍にしてください。</p>}<Field label="最大値"><AsciiText value={value.maxValueExpr} onChange={(maxValueExpr) => onChange({ maxValueExpr })} /></Field></> : <><Field label="最大値"><AsciiText value={value.maxValueExpr} onChange={(maxValueExpr) => onChange({ maxValueExpr })} /></Field><div className="division-heading"><span>内分点</span><button type="button" onClick={addDivision}>＋</button></div>{value.divisionPercents.map((percent, index) => <Field key={index} label={`点${index + 1}`}><RangeNumber value={roundValue(percent, 2)} min={0} max={100} step={1} suffix="%" onChange={(next) => setDivision(index, next)} /><button type="button" className="mini-delete" aria-label={`点${index + 1}を削除`} onClick={() => onChange({ divisionPercents: value.divisionPercents.filter((_, itemIndex) => itemIndex !== index) })}>×</button></Field>)}</>}
+      {value.mode === 'numberLine' ? <><Field label="目盛り"><AsciiText value={value.tickIntervalExpr} invalid={invalid && tick <= 0} onChange={(tickIntervalExpr) => onChange({ tickIntervalExpr })} /></Field><Field label="数値"><AsciiText value={value.labelIntervalExpr} invalid={invalid} onChange={(labelIntervalExpr) => onChange({ labelIntervalExpr })} /></Field>{invalid && <p className="field-error">「数値」は「目盛り」の整数倍にしてください。</p>}<Field label="最大値"><AsciiText value={value.maxValueExpr} onChange={(maxValueExpr) => onChange({ maxValueExpr })} /></Field></> : <><Field label="最大値"><AsciiText value={value.maxValueExpr} onChange={(maxValueExpr) => onChange({ maxValueExpr })} /></Field><label className="subtle-check"><input type="checkbox" checked={value.showMaxValue} onChange={(event) => onChange({ showMaxValue: event.target.checked })} /><span>最大値を表示</span></label><div className="division-heading"><span>内分点</span><button type="button" onClick={addDivision}>＋</button></div>{value.divisionPercents.map((percent, index) => <Field key={index} label={`点${index + 1}`}><RangeNumber value={roundValue(percent, 2)} min={0} max={100} step={1} suffix="%" onChange={(next) => setDivision(index, next)} /><button type="button" className="mini-delete" aria-label={`点${index + 1}を削除`} onClick={() => onChange({ divisionPercents: value.divisionPercents.filter((_, itemIndex) => itemIndex !== index) })}>×</button></Field>)}</>}
     </>
   );
 }
 
-function PointField({ label, value, onChange }: { label: string; value: Point; onChange: (point: Point) => void }) {
-  return <Field label={label}><div className="point-input"><label>x<AsciiNumber value={roundValue(value.x)} step={0.1} onChange={(x) => onChange({ ...value, x })} /></label><label>y<AsciiNumber value={roundValue(value.y)} step={0.1} onChange={(y) => onChange({ ...value, y })} /></label></div></Field>;
+function ExpressionPointField({ label, value, onChange }: { label: string; value: ExpressionPoint; onChange: (point: ExpressionPoint) => void }) {
+  return <Field label={label}><div className="point-input"><label>x<AsciiText value={value.x} onChange={(x) => onChange({ ...value, x })} /></label><label>y<AsciiText value={value.y} onChange={(y) => onChange({ ...value, y })} /></label></div></Field>;
+}
+
+function ExpressionRange({ value, variables, fallback, min, max, step, onChange }: { value: string; variables: VariableDef[]; fallback: number; min: number; max: number; step: number; onChange: (value: string) => void }) {
+  const evaluated = clamp(resolveNumber(value, variables, fallback), min, max);
+  return <div className="range-number expression-range"><input type="range" min={min} max={max} step={step} value={evaluated} onChange={(event) => onChange(String(Number(event.target.value)))} /><AsciiText value={value} onChange={onChange} /></div>;
 }
 
 function RangeNumber({ value, min, max, step = 1, suffix = '', onChange }: { value: number; min: number; max: number; step?: number; suffix?: string; onChange: (value: number) => void }) {
@@ -1379,8 +2219,8 @@ function AsciiNumber({ value, min, max, step = 1, invalid = false, disabled = fa
   }} onBlur={() => commit(text)} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); commit(text); event.currentTarget.blur(); } }} data-step={step} />;
 }
 
-function AsciiText({ value, invalid = false, onChange }: { value: string; invalid?: boolean; onChange: (value: string) => void }) {
-  return <input type="text" inputMode="text" className={invalid ? 'is-invalid' : ''} aria-invalid={invalid || undefined} value={value} onChange={(event) => onChange(sanitizeExpression(event.target.value))} />;
+function AsciiText({ value, invalid = false, disabled = false, onChange }: { value: string; invalid?: boolean; disabled?: boolean; onChange: (value: string) => void }) {
+  return <input type="text" inputMode="text" className={invalid ? 'is-invalid' : ''} aria-invalid={invalid || undefined} disabled={disabled} value={value} onChange={(event) => onChange(sanitizeExpression(event.target.value))} />;
 }
 
 interface ExpressionPanelProps {

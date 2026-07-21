@@ -30,27 +30,31 @@ export function normalizeRect(start: Point, end: Point): { x: number; y: number;
 }
 
 export function translateObject(object: GraphicObject, dx: number, dy: number): GraphicObject {
+  const rotationCenter = object.rotationCenter
+    ? { x: object.rotationCenter.x + dx, y: object.rotationCenter.y + dy }
+    : undefined;
   switch (object.type) {
     case 'pen':
-      return { ...object, points: object.points.map((point) => ({ x: point.x + dx, y: point.y + dy })) };
+      return { ...object, rotationCenter, points: object.points.map((point) => ({ x: point.x + dx, y: point.y + dy })) };
     case 'line':
     case 'arrow':
     case 'segment':
       return {
         ...object,
+        rotationCenter,
         start: { x: object.start.x + dx, y: object.start.y + dy },
         end: { x: object.end.x + dx, y: object.end.y + dy },
       };
     case 'rectangle':
     case 'array':
-      return { ...object, x: object.x + dx, y: object.y + dy };
+      return { ...object, rotationCenter, x: object.x + dx, y: object.y + dy };
     case 'ellipse':
-      return { ...object, cx: object.cx + dx, cy: object.cy + dy };
+      return { ...object, rotationCenter, cx: object.cx + dx, cy: object.cy + dy };
     case 'polygon':
-      return { ...object, points: object.points.map((point) => ({ x: point.x + dx, y: point.y + dy })) };
+      return { ...object, rotationCenter, points: object.points.map((point) => ({ x: point.x + dx, y: point.y + dy })) };
     case 'text':
     case 'math':
-      return { ...object, x: object.x + dx, y: object.y + dy };
+      return { ...object, rotationCenter, x: object.x + dx, y: object.y + dy };
   }
 }
 
