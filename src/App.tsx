@@ -14,7 +14,7 @@ import { Modal } from './components/Modal';
 import { Toolbar } from './components/Toolbar';
 import { createId, distance, normalizeRect, pointsToPath, translateObject } from './lib/geometry';
 import { prettyMath, resolveNumber } from './lib/math';
-import { openSvgAsPng } from './lib/screenshot';
+import { captureSvgAsPng, composeFourCaptures, copySvgPngToClipboard, createPngPreviewWindow, openSvgAsPng, showPngInPreview, type PngCapture } from './lib/screenshot';
 import {
   downloadJson,
   loadAutosave,
@@ -69,6 +69,8 @@ interface ToolPresets {
   text: StylePreset & { fontSize: number };
   math: StylePreset & { fontSize: number };
   array: StylePreset & { rowsExpr: string; colsExpr: string; symbol: ArrayObject['symbol']; symbolSize: number };
+  ball: StylePreset & { symbolSize: number };
+  person: StylePreset & { symbolSize: number };
   segment: StylePreset & {
     mode: MeasureMode;
     tickIntervalExpr: string;
@@ -91,12 +93,14 @@ interface SnapResult {
 }
 
 type Interaction =
-  | { kind: 'draw'; objectId: string; start: Point }
+  | { kind: 'draw'; objectId: string; start: Point; tool: ToolId }
   | { kind: 'move'; objectIds: string[]; start: Point; originals: GraphicObject[] }
   | { kind: 'resize'; objectId: string; handle: ResizeHandle; original: GraphicObject; originalBounds: { x: number; y: number; width: number; height: number }; originalCenter: Point; rotation: number }
   | { kind: 'vertex'; objectId: string; index: number; original: GraphicObject; originalCenter: Point; rotation: number }
   | { kind: 'marquee'; start: Point; additive: boolean }
   | { kind: 'pan'; clientStart: Point; originalView: ViewState }
+  | { kind: 'contextPan'; clientStart: Point; originalView: ViewState; moved: boolean }
+  | { kind: 'rotate'; objectId: string; original: GraphicObject; center: Point; startAngle: number; originalRotation: number }
   | { kind: 'zoom'; start: Point }
   | null;
 
@@ -106,6 +110,33 @@ type ModalState =
   | { kind: 'math'; point: Point; value: string; expressionId?: string }
   | { kind: 'about' }
   | null;
+
+
+const TOOL_CONTEXT_GROUPS: ToolId[][] = [
+  ['select', 'pan', 'zoom'],
+  ['line', 'arrow', 'pen'],
+  ['rectangle', 'ellipse', 'polygon'],
+  ['text', 'math'],
+  ['array', 'ball', 'person'],
+];
+
+function groupForTool(tool: ToolId): ToolId[] | null {
+  return TOOL_CONTEXT_GROUPS.find((group) => group.includes(tool)) ?? null;
+}
+
+interface ContextToolMenuState {
+  clientX: number;
+  clientY: number;
+  tools: ToolId[];
+}
+
+interface TouchGestureState {
+  pointerIds: [number, number];
+  startPoints: [Point, Point];
+  latestPoints: [Point, Point];
+  originalView: ViewState;
+  mode: 'pending' | 'pan' | 'pinch';
+}
 
 const MIN_DRAW_SIZE = 4;
 const TWO_PI = Math.PI * 2;
@@ -173,6 +204,8 @@ function createPresets(settings: GraphantaSettings): ToolPresets {
     text: { ...lineStyle, fontSize: 28 },
     math: { ...lineStyle, fontSize: 30 },
     array: { ...lineStyle, rowsExpr: '3', colsExpr: '4', symbol: 'circle', symbolSize: 9 },
+    ball: { ...lineStyle, symbolSize: 20 },
+    person: { ...lineStyle, symbolSize: 24 },
     segment: {
       ...lineStyle,
       mode: 'numberLine',
@@ -190,6 +223,11 @@ function normalizeSettings(value: GraphantaSettings | null): GraphantaSettings {
   if (!value) return base;
   const visibleTools = [...new Set(value.visibleTools.filter((tool) => ALL_TOOLS.includes(tool)))];
   if (visibleTools.includes('pan') && !visibleTools.includes('zoom')) visibleTools.splice(visibleTools.indexOf('pan') + 1, 0, 'zoom');
+  if (visibleTools.includes('array')) {
+    const arrayIndex = visibleTools.indexOf('array');
+    if (!visibleTools.includes('ball')) visibleTools.splice(arrayIndex + 1, 0, 'ball');
+    if (!visibleTools.includes('person')) visibleTools.splice(visibleTools.indexOf('ball') + 1, 0, 'person');
+  }
   return { ...base, ...value, visibleTools };
 }
 
@@ -392,6 +430,8 @@ function toolForObject(object: GraphicObject): ToolId {
   if (object.type === 'line') return 'line';
   if (object.type === 'arrow') return 'arrow';
   if (object.type === 'segment') return 'segment';
+  if (object.type === 'array' && object.symbol === 'ball') return 'ball';
+  if (object.type === 'array' && object.symbol === 'person') return 'person';
   return object.type;
 }
 
@@ -613,6 +653,15 @@ function App() {
   const gestureSnapshot = useRef<GraphantaProject | null>(null);
   const gestureChanged = useRef(false);
   const [historyRevision, setHistoryRevision] = useState(0);
+  const [viewportSize, setViewportSize] = useState({ width: project.canvas.width, height: project.canvas.height });
+  const [contextToolMenu, setContextToolMenu] = useState<ContextToolMenuState | null>(null);
+  const [screenshotMenuOpen, setScreenshotMenuOpen] = useState(false);
+  const [fourShotCaptures, setFourShotCaptures] = useState<PngCapture[]>([]);
+  const [screenshotBusy, setScreenshotBusy] = useState(false);
+  const plotViewportRef = useRef<HTMLDivElement | null>(null);
+  const activePointers = useRef(new Map<number, Point>());
+  const touchGesture = useRef<TouchGestureState | null>(null);
+  const centeredInitialView = useRef(false);
 
   const selectedId = selectedIds.at(-1) ?? null;
   const setSelectedId = useCallback((value: string | null) => setSelectedIds(value ? [value] : []), []);
@@ -621,6 +670,8 @@ function App() {
   const visibleTools = useMemo(() => settings.visibleTools.filter((tool) => ALL_TOOLS.includes(tool)), [settings.visibleTools]);
   const coordinateUnitPx = Math.min(project.canvas.width, project.canvas.height) / (2 * Math.max(1, project.canvas.coordinatePrecision));
   const coordinateOrigin = useMemo<Point>(() => ({ x: project.canvas.width / 2, y: project.canvas.height / 2 }), [project.canvas.width, project.canvas.height]);
+  const visibleWorldWidth = viewportSize.width / view.zoom;
+  const visibleWorldHeight = viewportSize.height / view.zoom;
 
   const worldToCoordinate = useCallback((point: Point): Point => ({
     x: roundValue((point.x - coordinateOrigin.x) / coordinateUnitPx),
@@ -798,6 +849,25 @@ function App() {
   }, [project]);
 
   useEffect(() => {
+    const element = plotViewportRef.current;
+    if (!element) return;
+    const update = () => {
+      const rect = element.getBoundingClientRect();
+      const width = Math.max(1, rect.width);
+      const height = Math.max(1, rect.height);
+      setViewportSize({ width, height });
+      if (!centeredInitialView.current) {
+        centeredInitialView.current = true;
+        setView((current) => ({ ...current, x: coordinateOrigin.x - width / (2 * current.zoom), y: coordinateOrigin.y - height / (2 * current.zoom) }));
+      }
+    };
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [coordinateOrigin]);
+
+  useEffect(() => {
     const onFullscreen = () => setPresentation(Boolean(document.fullscreenElement));
     document.addEventListener('fullscreenchange', onFullscreen);
     return () => document.removeEventListener('fullscreenchange', onFullscreen);
@@ -829,6 +899,8 @@ function App() {
         setSelectionBox(null);
         setSnapIndicator(null);
         setModal(null);
+        setContextToolMenu(null);
+        setScreenshotMenuOpen(false);
         setSelectedIds([]);
       } else if (event.key === 'Enter' && polygonPoints.length >= 3) {
         event.preventDefault();
@@ -917,6 +989,8 @@ function App() {
       : tool === 'text' ? presets.text
       : tool === 'math' ? presets.math
       : tool === 'array' ? presets.array
+      : tool === 'ball' ? presets.ball
+      : tool === 'person' ? presets.person
       : tool === 'segment' ? presets.segment
       : { stroke: settings.defaultStroke, fill: settings.defaultFill, strokeWidth: settings.defaultStrokeWidth, opacity: 1 };
     return { stroke: source.stroke, fill: source.fill, strokeWidth: source.strokeWidth, opacity: source.opacity };
@@ -941,6 +1015,14 @@ function App() {
           rowsExpr: presets.array.rowsExpr, colsExpr: presets.array.colsExpr, symbol: presets.array.symbol,
           symbolSize: presets.array.symbolSize, rotation: 0, ...style,
         };
+      case 'ball':
+      case 'person': {
+        const size = presets[tool].symbolSize;
+        return {
+          id: createId(tool), type: 'array', x: point.x - size, y: point.y - size, width: size * 2, height: size * 2,
+          rowsExpr: '1', colsExpr: '1', symbol: tool, symbolSize: size, rotation: 0, ...style,
+        };
+      }
       case 'segment':
         return {
           id: createId('segment'), type: 'segment', start: point, end: point,
@@ -961,10 +1043,64 @@ function App() {
     setZoomBox(null);
     setSelectionBox(null);
     setSnapIndicator(null);
+    setContextToolMenu(null);
     setStatus(`${TOOL_LABELS[tool]}を選択しました`);
   }
 
+  function openToolContextAt(clientX: number, clientY: number) {
+    const tools = groupForTool(activeTool);
+    if (!tools) return;
+    setContextToolMenu({ clientX, clientY, tools });
+  }
+
+  function cancelInteractionForTwoFingerGesture() {
+    if (interaction?.kind === 'draw') {
+      setProject((current) => ({ ...current, objects: current.objects.filter((item) => item.id !== interaction.objectId) }));
+      undoStack.current.pop();
+      setSelectedId(null);
+    } else if (gestureSnapshot.current) {
+      setProject(gestureSnapshot.current);
+    }
+    gestureSnapshot.current = null;
+    gestureChanged.current = false;
+    setInteraction(null);
+    setZoomBox(null);
+    setSelectionBox(null);
+    setSnapIndicator(null);
+    if (activeTool === 'polygon') setPolygonPoints((points) => points.slice(0, -1));
+    if (modal?.kind === 'text' || modal?.kind === 'math') setModal(null);
+  }
+
   function beginPointer(event: ReactPointerEvent<SVGSVGElement>) {
+    setContextToolMenu(null);
+    setScreenshotMenuOpen(false);
+    if (event.pointerType === 'touch') {
+      activePointers.current.set(event.pointerId, { x: event.clientX, y: event.clientY });
+      try { event.currentTarget.setPointerCapture(event.pointerId); } catch { /* noop */ }
+      if (activePointers.current.size === 2) {
+        const entries = [...activePointers.current.entries()] as Array<[number, Point]>;
+        cancelInteractionForTwoFingerGesture();
+        touchGesture.current = {
+          pointerIds: [entries[0][0], entries[1][0]],
+          startPoints: [entries[0][1], entries[1][1]],
+          latestPoints: [entries[0][1], entries[1][1]],
+          originalView: view,
+          mode: 'pending',
+        };
+        event.preventDefault();
+        return;
+      }
+      if (activePointers.current.size > 2) {
+        event.preventDefault();
+        return;
+      }
+    }
+    if (event.button === 2) {
+      event.preventDefault();
+      event.currentTarget.setPointerCapture(event.pointerId);
+      setInteraction({ kind: 'contextPan', clientStart: { x: event.clientX, y: event.clientY }, originalView: view, moved: false });
+      return;
+    }
     if (event.button !== 0) return;
     event.preventDefault();
     const target = event.target as Element;
@@ -974,6 +1110,8 @@ function App() {
     const vertexElement = target.closest('[data-vertex-index]');
     const vertexIndexText = vertexElement?.getAttribute('data-vertex-index');
     const vertexObjectId = vertexElement?.getAttribute('data-vertex-object-id') ?? null;
+    const rotateElement = target.closest('[data-rotate-object-id]');
+    const rotateObjectId = rotateElement?.getAttribute('data-rotate-object-id') ?? null;
     const resizeElement = target.closest('[data-resize-handle]');
     const resizeHandle = resizeElement?.getAttribute('data-resize-handle') as ResizeHandle | null;
     const resizeObjectId = resizeElement?.getAttribute('data-resize-object-id') ?? null;
@@ -1026,6 +1164,20 @@ function App() {
       setSelectedId(vertexObjectId);
       event.currentTarget.setPointerCapture(event.pointerId);
       setInteraction({ kind: 'vertex', objectId: vertexObjectId, index, original: structuredClone(resolved), originalCenter: getObjectCenter(resolved), rotation: objectRotation(resolved) });
+      return;
+    }
+
+    if (rotateObjectId) {
+      const source = project.objects.find((item) => item.id === rotateObjectId);
+      if (!source || source.locked || !('rotation' in source)) return;
+      const resolved = resolveObject(source);
+      const center = getObjectCenter(resolved);
+      const point = rawWorldPoint(event.clientX, event.clientY);
+      gestureSnapshot.current = structuredClone(project);
+      gestureChanged.current = false;
+      setSelectedId(rotateObjectId);
+      event.currentTarget.setPointerCapture(event.pointerId);
+      setInteraction({ kind: 'rotate', objectId: rotateObjectId, original: structuredClone(resolved), center, startAngle: angleOf(center, point), originalRotation: objectRotation(resolved) });
       return;
     }
 
@@ -1102,19 +1254,66 @@ function App() {
     setProject((current) => ({ ...current, objects: [...current.objects, object], updatedAt: new Date().toISOString() }));
     setSelectedId(object.id);
     event.currentTarget.setPointerCapture(event.pointerId);
-    setInteraction({ kind: 'draw', objectId: object.id, start: point });
+    setInteraction({ kind: 'draw', objectId: object.id, start: point, tool: activeTool });
   }
 
   function movePointer(event: ReactPointerEvent<SVGSVGElement>) {
+    if (event.pointerType === 'touch' && activePointers.current.has(event.pointerId)) {
+      activePointers.current.set(event.pointerId, { x: event.clientX, y: event.clientY });
+      const gesture = touchGesture.current;
+      if (gesture) {
+        const first = activePointers.current.get(gesture.pointerIds[0]);
+        const second = activePointers.current.get(gesture.pointerIds[1]);
+        if (first && second) {
+          event.preventDefault();
+          gesture.latestPoints = [first, second];
+          const startCenter = { x: (gesture.startPoints[0].x + gesture.startPoints[1].x) / 2, y: (gesture.startPoints[0].y + gesture.startPoints[1].y) / 2 };
+          const currentCenter = { x: (first.x + second.x) / 2, y: (first.y + second.y) / 2 };
+          const centerShift = distance(startCenter, currentCenter);
+          const startDistance = Math.max(1, distance(gesture.startPoints[0], gesture.startPoints[1]));
+          const currentDistance = Math.max(1, distance(first, second));
+          const scaleChange = Math.abs(currentDistance / startDistance - 1);
+          if (gesture.mode === 'pending') {
+            if (scaleChange > 0.055) gesture.mode = 'pinch';
+            else if (centerShift > 7) gesture.mode = 'pan';
+          }
+          if (gesture.mode === 'pan') {
+            const dx = ((currentCenter.x - startCenter.x) / Math.max(1, viewportSize.width)) * (viewportSize.width / gesture.originalView.zoom);
+            const dy = ((currentCenter.y - startCenter.y) / Math.max(1, viewportSize.height)) * (viewportSize.height / gesture.originalView.zoom);
+            setView({ ...gesture.originalView, x: gesture.originalView.x - dx, y: gesture.originalView.y - dy });
+          } else if (gesture.mode === 'pinch') {
+            const nextZoom = clamp(gesture.originalView.zoom * (currentDistance / startDistance), 0.25, 8);
+            const rect = event.currentTarget.getBoundingClientRect();
+            const startRatioX = (startCenter.x - rect.left) / Math.max(1, rect.width);
+            const startRatioY = (startCenter.y - rect.top) / Math.max(1, rect.height);
+            const anchorWorld = {
+              x: gesture.originalView.x + startRatioX * (viewportSize.width / gesture.originalView.zoom),
+              y: gesture.originalView.y + startRatioY * (viewportSize.height / gesture.originalView.zoom),
+            };
+            const currentRatioX = (currentCenter.x - rect.left) / Math.max(1, rect.width);
+            const currentRatioY = (currentCenter.y - rect.top) / Math.max(1, rect.height);
+            setView({
+              x: anchorWorld.x - currentRatioX * (viewportSize.width / nextZoom),
+              y: anchorWorld.y - currentRatioY * (viewportSize.height / nextZoom),
+              zoom: nextZoom,
+            });
+          }
+          return;
+        }
+      }
+    }
     if (!interaction) return;
     event.preventDefault();
-    if (interaction.kind === 'pan') {
+    if (interaction.kind === 'pan' || interaction.kind === 'contextPan') {
       const rect = event.currentTarget.getBoundingClientRect();
-      const worldWidth = project.canvas.width / interaction.originalView.zoom;
-      const worldHeight = project.canvas.height / interaction.originalView.zoom;
+      const worldWidth = viewportSize.width / interaction.originalView.zoom;
+      const worldHeight = viewportSize.height / interaction.originalView.zoom;
       const dx = ((event.clientX - interaction.clientStart.x) / Math.max(1, rect.width)) * worldWidth;
       const dy = ((event.clientY - interaction.clientStart.y) / Math.max(1, rect.height)) * worldHeight;
       setView({ ...interaction.originalView, x: interaction.originalView.x - dx, y: interaction.originalView.y - dy });
+      if (interaction.kind === 'contextPan' && !interaction.moved && Math.hypot(event.clientX - interaction.clientStart.x, event.clientY - interaction.clientStart.y) > 4) {
+        setInteraction({ ...interaction, moved: true });
+      }
       return;
     }
     if (interaction.kind === 'zoom') {
@@ -1157,6 +1356,14 @@ function App() {
       updateObject(interaction.objectId, () => clearGeometryBindings({ ...interaction.original, rotationCenter: interaction.originalCenter, points }), false);
       return;
     }
+    if (interaction.kind === 'rotate') {
+      gestureChanged.current = true;
+      const currentAngle = angleOf(interaction.center, point);
+      let rotation = interaction.originalRotation + normalizeAngle(currentAngle - interaction.startAngle);
+      if (event.shiftKey) rotation = Math.round(rotation / (Math.PI / 12)) * (Math.PI / 12);
+      updateObject(interaction.objectId, (current) => ('rotation' in current ? clearGeometryBindings({ ...current, rotation } as GraphicObject) : current), false);
+      return;
+    }
     if (interaction.kind === 'resize') {
       gestureChanged.current = true;
       updateObject(interaction.objectId, () => resizeGraphicObject(
@@ -1190,6 +1397,14 @@ function App() {
         case 'ellipse':
           return { ...object, cx: interaction.start.x, cy: interaction.start.y, rx: Math.abs(point.x - interaction.start.x), ry: Math.abs(point.y - interaction.start.y), majorAxis: Math.abs(point.x - interaction.start.x) >= Math.abs(point.y - interaction.start.y) ? 'x' : 'y' };
         case 'array': {
+          if ((object.symbol === 'ball' || object.symbol === 'person') && interaction.tool !== 'array') {
+            const dx = point.x - interaction.start.x;
+            const dy = point.y - interaction.start.y;
+            if (Math.hypot(dx, dy) < 4 / Math.max(view.zoom, 0.25)) return object;
+            const rect = normalizeRect(interaction.start, point);
+            const size = Math.max(3, Math.min(rect.width, rect.height) / 2);
+            return { ...object, ...rect, symbolSize: size };
+          }
           const rect = normalizeRect(interaction.start, point);
           return { ...object, ...rect };
         }
@@ -1201,24 +1416,49 @@ function App() {
 
   function zoomAt(point: Point, factor: number) {
     const nextZoom = clamp(view.zoom * factor, 0.25, 8);
-    const visibleWidth = project.canvas.width / nextZoom;
-    const visibleHeight = project.canvas.height / nextZoom;
+    const visibleWidth = viewportSize.width / nextZoom;
+    const visibleHeight = viewportSize.height / nextZoom;
     setView({ x: point.x - visibleWidth / 2, y: point.y - visibleHeight / 2, zoom: nextZoom });
   }
 
   function fitZoomRect(rect: { x: number; y: number; width: number; height: number }) {
-    const aspect = project.canvas.width / project.canvas.height;
+    const aspect = viewportSize.width / Math.max(1, viewportSize.height);
     const paddedWidth = Math.max(rect.width * 1.08, rect.height * aspect * 1.08, 10);
     const paddedHeight = paddedWidth / aspect;
-    const nextZoom = clamp(project.canvas.width / paddedWidth, 0.25, 8);
+    const nextZoom = clamp(viewportSize.width / paddedWidth, 0.25, 8);
     const center = { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
     setView({ x: center.x - paddedWidth / 2, y: center.y - paddedHeight / 2, zoom: nextZoom });
   }
 
   function endPointer(event: ReactPointerEvent<SVGSVGElement>) {
+    if (event.pointerType === 'touch') {
+      const gesture = touchGesture.current;
+      activePointers.current.delete(event.pointerId);
+      if (gesture) {
+        if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+        if (activePointers.current.size < 2) {
+          const center = {
+            x: (gesture.latestPoints[0].x + gesture.latestPoints[1].x) / 2,
+            y: (gesture.latestPoints[0].y + gesture.latestPoints[1].y) / 2,
+          };
+          if (event.type !== 'pointercancel' && gesture.mode === 'pending') openToolContextAt(center.x, center.y);
+          else if (gesture.mode === 'pan') setStatus('2本指で表示位置を移動しました');
+          else setStatus('ピンチ操作で表示倍率を変更しました');
+          touchGesture.current = null;
+        }
+        return;
+      }
+    }
     if (!interaction) return;
     if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
     setSnapIndicator(null);
+    if (interaction.kind === 'contextPan') {
+      const moved = interaction.moved || Math.hypot(event.clientX - interaction.clientStart.x, event.clientY - interaction.clientStart.y) > 4;
+      if (!moved) openToolContextAt(event.clientX, event.clientY);
+      else setStatus('表示位置を移動しました');
+      setInteraction(null);
+      return;
+    }
     if (event.type === 'pointercancel' && gestureSnapshot.current) {
       setProject(gestureSnapshot.current);
       gestureSnapshot.current = null;
@@ -1250,7 +1490,7 @@ function App() {
       setInteraction(null);
       return;
     }
-    if (interaction.kind === 'move' || interaction.kind === 'resize' || interaction.kind === 'vertex') {
+    if (interaction.kind === 'move' || interaction.kind === 'resize' || interaction.kind === 'vertex' || interaction.kind === 'rotate') {
       if (gestureChanged.current && gestureSnapshot.current) commitHistory(gestureSnapshot.current);
       gestureSnapshot.current = null;
       gestureChanged.current = false;
@@ -1262,7 +1502,12 @@ function App() {
       if (source) {
         const object = resolveObject(source);
         const bounds = getObjectBounds(object);
-        if (bounds.width < MIN_DRAW_SIZE && bounds.height < MIN_DRAW_SIZE && object.type !== 'pen') {
+        const isSingleSymbol = object.type === 'array' && (object.symbol === 'ball' || object.symbol === 'person');
+        if (isSingleSymbol) {
+          const tool: 'ball' | 'person' = object.symbol === 'ball' ? 'ball' : 'person';
+          const nextSize = Math.max(3, Math.min(object.width, object.height) / 2);
+          setPresets((current) => ({ ...current, [tool]: { ...current[tool], symbolSize: nextSize } }));
+        } else if (bounds.width < MIN_DRAW_SIZE && bounds.height < MIN_DRAW_SIZE && object.type !== 'pen') {
           setProject((current) => ({ ...current, objects: current.objects.filter((item) => item.id !== object.id) }));
           setSelectedId(null);
         }
@@ -1276,12 +1521,12 @@ function App() {
     const point = rawWorldPoint(event.clientX, event.clientY);
     const oldZoom = view.zoom;
     const nextZoom = clamp(oldZoom * (event.deltaY < 0 ? 1.12 : 0.89), 0.25, 8);
-    const widthOld = project.canvas.width / oldZoom;
-    const heightOld = project.canvas.height / oldZoom;
+    const widthOld = viewportSize.width / oldZoom;
+    const heightOld = viewportSize.height / oldZoom;
     const ratioX = (point.x - view.x) / widthOld;
     const ratioY = (point.y - view.y) / heightOld;
-    const widthNew = project.canvas.width / nextZoom;
-    const heightNew = project.canvas.height / nextZoom;
+    const widthNew = viewportSize.width / nextZoom;
+    const heightNew = viewportSize.height / nextZoom;
     setView({ x: point.x - ratioX * widthNew, y: point.y - ratioY * heightNew, zoom: nextZoom });
   }
 
@@ -1375,17 +1620,23 @@ function App() {
     const cols = clamp(Math.round(resolveNumber(object.colsExpr, project.variables, 4)), 1, 50);
     const cellWidth = object.width / cols;
     const cellHeight = object.height / rows;
-    const symbolSize = Math.min(object.symbolSize, Math.abs(cellWidth) * 0.36, Math.abs(cellHeight) * 0.36);
+    const symbolRatio = object.symbol === 'ball' || object.symbol === 'person' ? 0.48 : 0.36;
+    const symbolSize = Math.max(1, Math.min(object.symbolSize, Math.abs(cellWidth) * symbolRatio, Math.abs(cellHeight) * symbolRatio));
     const symbols = [];
     for (let row = 0; row < rows; row += 1) {
       for (let col = 0; col < cols; col += 1) {
         const cx = object.x + cellWidth * (col + 0.5);
         const cy = object.y + cellHeight * (row + 0.5);
         const fill = object.fill === 'transparent' ? object.stroke : object.fill;
-        if (object.symbol === 'circle') symbols.push(<circle key={`${row}-${col}`} cx={cx} cy={cy} r={symbolSize} fill={fill} stroke="none" />);
-        else if (object.symbol === 'square') symbols.push(<rect key={`${row}-${col}`} x={cx - symbolSize} y={cy - symbolSize} width={symbolSize * 2} height={symbolSize * 2} fill={fill} stroke="none" />);
-        else if (object.symbol === 'dot') symbols.push(<circle key={`${row}-${col}`} cx={cx} cy={cy} r={Math.max(2, symbolSize * 0.42)} fill={object.stroke} stroke="none" />);
-        else symbols.push(<path key={`${row}-${col}`} d={`M ${cx - symbolSize} ${cy - symbolSize} L ${cx + symbolSize} ${cy + symbolSize} M ${cx + symbolSize} ${cy - symbolSize} L ${cx - symbolSize} ${cy + symbolSize}`} fill="none" stroke={object.stroke} strokeWidth={object.strokeWidth} />);
+        const key = `${row}-${col}`;
+        if (object.symbol === 'circle') symbols.push(<circle key={key} cx={cx} cy={cy} r={symbolSize} fill={fill} stroke="none" />);
+        else if (object.symbol === 'square') symbols.push(<rect key={key} x={cx - symbolSize} y={cy - symbolSize} width={symbolSize * 2} height={symbolSize * 2} fill={fill} stroke="none" />);
+        else if (object.symbol === 'dot') symbols.push(<circle key={key} cx={cx} cy={cy} r={Math.max(2, symbolSize * 0.42)} fill={object.stroke} stroke="none" />);
+        else if (object.symbol === 'ball') symbols.push(<g key={key}><circle cx={cx + symbolSize * 0.08} cy={cy + symbolSize * 0.12} r={symbolSize} fill="#18233b" opacity={0.18} /><circle cx={cx} cy={cy} r={symbolSize} fill={fill} stroke={object.stroke} strokeWidth={Math.max(0.8, object.strokeWidth * 0.55)} /><ellipse cx={cx - symbolSize * 0.3} cy={cy - symbolSize * 0.32} rx={symbolSize * 0.28} ry={symbolSize * 0.2} fill="#ffffff" opacity={0.42} /></g>);
+        else if (object.symbol === 'person') {
+          const scale = symbolSize / 12;
+          symbols.push(<g key={key} transform={`translate(${cx} ${cy}) scale(${scale})`} fill={fill} stroke={object.stroke} strokeWidth={Math.max(0.7, object.strokeWidth / Math.max(scale, 0.01))} strokeLinecap="round" strokeLinejoin="round"><circle cx="0" cy="-7" r="3" /><path d="M-4 -2 C-4 -4 -2.2 -5 0 -5 C2.2 -5 4 -4 4 -2 L4 5 L2.2 5 L2.2 11 L-2.2 11 L-2.2 5 L-4 5 Z" /><path d="M-4 -1 L-8 5 M4 -1 L8 5" fill="none" /></g>);
+        } else symbols.push(<path key={key} d={`M ${cx - symbolSize} ${cy - symbolSize} L ${cx + symbolSize} ${cy + symbolSize} M ${cx + symbolSize} ${cy - symbolSize} L ${cx - symbolSize} ${cy + symbolSize}`} fill="none" stroke={object.stroke} strokeWidth={object.strokeWidth} />);
       }
     }
     return symbols;
@@ -1582,11 +1833,17 @@ function App() {
       {handle('se', corners[2])}
       {handle('sw', corners[3])}
     </>;
+    const center = getObjectCenter(object);
+    const topMid = { x: (corners[0].x + corners[1].x) / 2, y: (corners[0].y + corners[1].y) / 2 };
+    const topDistance = Math.max(0.001, distance(center, topMid));
+    const rotationHandlePoint = { x: topMid.x + (topMid.x - center.x) / topDistance * (28 / view.zoom), y: topMid.y + (topMid.y - center.y) / topDistance * (28 / view.zoom) };
+    const rotatable = !selectedObject.locked && 'rotation' in object && !(object.type === 'ellipse' && Math.abs(object.rx - object.ry) < 0.001);
     const polygonVertices = object.type === 'polygon' && !selectedObject.locked ? object.points.map((point) => displayedPoint(object, point)) : [];
     return (
       <g data-ui-only="true">
         <polygon points={corners.map((point) => `${point.x},${point.y}`).join(' ')} fill="none" stroke="#6455ea" strokeWidth={1.6} strokeDasharray="7 5" className="selection-outline" vectorEffect="non-scaling-stroke" pointerEvents="none" />
         {handles}
+        {rotatable && <g className="rotation-handle-group"><line x1={topMid.x} y1={topMid.y} x2={rotationHandlePoint.x} y2={rotationHandlePoint.y} stroke="#5648df" strokeWidth={1.3} strokeDasharray="3 3" vectorEffect="non-scaling-stroke" pointerEvents="none" /><circle data-rotate-object-id={selectedObject.id} className="rotation-handle" cx={rotationHandlePoint.x} cy={rotationHandlePoint.y} r={6 / view.zoom} fill="#fff" stroke="#5648df" strokeWidth={1.8} vectorEffect="non-scaling-stroke" pointerEvents="all" /><path d={`M ${rotationHandlePoint.x - 2.8 / view.zoom} ${rotationHandlePoint.y} A ${3 / view.zoom} ${3 / view.zoom} 0 1 1 ${rotationHandlePoint.x + 2.2 / view.zoom} ${rotationHandlePoint.y - 2.2 / view.zoom}`} fill="none" stroke="#5648df" strokeWidth={1.1} vectorEffect="non-scaling-stroke" pointerEvents="none" /></g>}
         {polygonVertices.map((point, index) => (
           <circle
             key={`vertex-${index}`}
@@ -1615,7 +1872,7 @@ function App() {
 
   function renderAxes() {
     if (!project.canvas.axesVisible) return null;
-    const visible = { xMin: view.x, xMax: view.x + project.canvas.width / view.zoom, yMin: view.y, yMax: view.y + project.canvas.height / view.zoom };
+    const visible = { xMin: view.x, xMax: view.x + visibleWorldWidth, yMin: view.y, yMax: view.y + visibleWorldHeight };
     const tick = Math.max(0, project.canvas.tickInterval);
     const label = Math.max(0, project.canvas.labelInterval);
     const labelValid = tick === 0 ? label === 0 : label === 0 || Math.abs(label / tick - Math.round(label / tick)) < 1e-7;
@@ -1625,6 +1882,8 @@ function App() {
     const arrowSize = 8 / view.zoom;
     elements.push(<path key="x-arrow" d={`M ${visible.xMax - arrowSize * 1.8} ${coordinateOrigin.y - arrowSize} L ${visible.xMax} ${coordinateOrigin.y} L ${visible.xMax - arrowSize * 1.8} ${coordinateOrigin.y + arrowSize}`} fill="none" stroke="#596176" strokeWidth={1.5} vectorEffect="non-scaling-stroke" />);
     elements.push(<path key="y-arrow" d={`M ${coordinateOrigin.x - arrowSize} ${visible.yMin + arrowSize * 1.8} L ${coordinateOrigin.x} ${visible.yMin} L ${coordinateOrigin.x + arrowSize} ${visible.yMin + arrowSize * 1.8}`} fill="none" stroke="#596176" strokeWidth={1.5} vectorEffect="non-scaling-stroke" />);
+    elements.push(<text key="x-axis-name" x={visible.xMax - 15 / view.zoom} y={coordinateOrigin.y - 12 / view.zoom} textAnchor="middle" fontSize={15 / view.zoom} fontStyle="italic" fontWeight={600} fill="#444c61">x</text>);
+    elements.push(<text key="y-axis-name" x={coordinateOrigin.x + 13 / view.zoom} y={visible.yMin + 18 / view.zoom} textAnchor="start" fontSize={15 / view.zoom} fontStyle="italic" fontWeight={600} fill="#444c61">y</text>);
     if (tick > 0) {
       const xCoordMin = Math.floor((visible.xMin - coordinateOrigin.x) / coordinateUnitPx / tick) * tick;
       const xCoordMax = Math.ceil((visible.xMax - coordinateOrigin.x) / coordinateUnitPx / tick) * tick;
@@ -1650,10 +1909,10 @@ function App() {
       }
     }
     elements.push(<text key="origin-label" x={coordinateOrigin.x - 8 / view.zoom} y={coordinateOrigin.y + 17 / view.zoom} textAnchor="end" fontSize={13 / view.zoom} fill="#444c61">0</text>);
-    return <g data-ui-only="true" pointerEvents="none">{elements}</g>;
+    return <g pointerEvents="none">{elements}</g>;
   }
 
-  const viewBox = `${view.x} ${view.y} ${project.canvas.width / view.zoom} ${project.canvas.height / view.zoom}`;
+  const viewBox = `${view.x} ${view.y} ${visibleWorldWidth} ${visibleWorldHeight}`;
   const coordinateGridStep = coordinateUnitPx * Math.max(project.canvas.tickInterval || 1, 0.0001);
 
   function saveProject() {
@@ -1702,15 +1961,62 @@ function App() {
     setStatus('新しいプロジェクトを作成しました');
   }
 
-  async function screenshot() {
-    if (!svgRef.current) return;
+  async function screenshotInstant() {
+    if (!svgRef.current || screenshotBusy) return;
+    setScreenshotBusy(true);
+    setScreenshotMenuOpen(false);
     try {
-      setStatus('スクリーンショットを生成しています');
+      setStatus('インスタント画像を生成しています');
       await openSvgAsPng(svgRef.current, project.canvas.background);
       setStatus('スクリーンショットを新しいウィンドウに表示しました');
     } catch (error) {
       window.alert(error instanceof Error ? error.message : 'スクリーンショットを生成できませんでした');
       setStatus('スクリーンショットの生成に失敗しました');
+    } finally {
+      setScreenshotBusy(false);
+    }
+  }
+
+  async function screenshotToClipboard() {
+    if (!svgRef.current || screenshotBusy) return;
+    setScreenshotBusy(true);
+    setScreenshotMenuOpen(false);
+    try {
+      setStatus('クリップボード用画像を生成しています');
+      await copySvgPngToClipboard(svgRef.current, project.canvas.background);
+      setStatus('プロットエリアをクリップボードにコピーしました');
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : 'クリップボードにコピーできませんでした');
+      setStatus('クリップボードへのコピーに失敗しました');
+    } finally {
+      setScreenshotBusy(false);
+    }
+  }
+
+  async function captureFourShot() {
+    if (!svgRef.current || screenshotBusy) return;
+    setScreenshotBusy(true);
+    setScreenshotMenuOpen(false);
+    const previewWindow = fourShotCaptures.length === 3 ? createPngPreviewWindow() : null;
+    try {
+      const capture = await captureSvgAsPng(svgRef.current, project.canvas.background);
+      const next = [...fourShotCaptures, capture];
+      if (next.length < 4) {
+        setFourShotCaptures(next);
+        setStatus(`4ショット: ${next.length}枚目を記録しました。次は${next.length + 1}枚目です`);
+      } else {
+        setStatus('4ショット画像を合成しています');
+        const composed = await composeFourCaptures(next);
+        if (previewWindow) showPngInPreview(previewWindow, composed.dataUrl, '左上・右上・左下・右下の順に4枚を配置しています。');
+        setFourShotCaptures([]);
+        setStatus('4ショットを新しいウィンドウに表示しました');
+      }
+    } catch (error) {
+      previewWindow?.close();
+      window.alert(error instanceof Error ? error.message : '4ショットを生成できませんでした');
+      setStatus('4ショットの生成に失敗しました');
+    } finally {
+      setScreenshotBusy(false);
     }
   }
 
@@ -1745,7 +2051,7 @@ function App() {
   }
 
   function placeExpression(expression: ExpressionDef) {
-    setModal({ kind: 'math', point: { x: view.x + project.canvas.width / view.zoom / 2, y: view.y + project.canvas.height / view.zoom / 2 }, value: expression.source });
+    setModal({ kind: 'math', point: { x: view.x + visibleWorldWidth / 2, y: view.y + visibleWorldHeight / 2 }, value: expression.source });
   }
 
   return (
@@ -1762,11 +2068,19 @@ function App() {
           <button type="button" aria-label="元に戻す" title="元に戻す" onClick={undo} disabled={undoStack.current.length === 0} data-history={historyRevision}><Icon name="undo" size={19} /></button>
           <button type="button" aria-label="やり直す" title="やり直す" onClick={redo} disabled={redoStack.current.length === 0} data-history={historyRevision}><Icon name="redo" size={19} /></button>
           <span className="menu-divider" />
-          <button type="button" onClick={screenshot}><Icon name="camera" size={19} /><span>スクショ</span></button>
+          <div className="screenshot-menu-wrap">
+            <button type="button" className={fourShotCaptures.length ? 'is-capturing' : ''} disabled={screenshotBusy} onClick={() => fourShotCaptures.length ? captureFourShot() : setScreenshotMenuOpen((open) => !open)}><Icon name="camera" size={19} />{fourShotCaptures.length ? <span className="shot-next-number">{fourShotCaptures.length + 1}</span> : <span>スクショ</span>}</button>
+            <button type="button" className="screenshot-menu-toggle" aria-label="スクリーンショットメニュー" aria-expanded={screenshotMenuOpen} onClick={() => setScreenshotMenuOpen((open) => !open)}>⌄</button>
+            {screenshotMenuOpen && <div className="screenshot-dropdown" role="menu">
+              <button type="button" role="menuitem" onClick={screenshotInstant}><Icon name="camera" size={18} /><span><strong>インスタント</strong><small>新規ウィンドウに1枚出力</small></span></button>
+              <button type="button" role="menuitem" onClick={captureFourShot}><Icon name="grid" size={18} /><span><strong>4ショット</strong><small>4枚を順に記録して4分割</small></span></button>
+              <button type="button" role="menuitem" onClick={screenshotToClipboard}><Icon name="duplicate" size={18} /><span><strong>クリップボード</strong><small>画像だけをコピー</small></span></button>
+            </div>}
+          </div>
           <button type="button" onClick={togglePresentation}><Icon name="fullscreen" size={19} /><span>発表</span></button>
           <button type="button" aria-label="設定" title="設定" onClick={() => setModal({ kind: 'settings' })}><Icon name="settings" size={19} /></button>
         </nav>
-        <div className="view-control" aria-label="表示倍率"><button type="button" onClick={() => setView({ x: 0, y: 0, zoom: 1 })}>全体表示</button><output>{Math.round(view.zoom * 100)}%</output></div>
+        <div className="view-control" aria-label="表示倍率"><button type="button" onClick={() => setView({ x: coordinateOrigin.x - viewportSize.width / 2, y: coordinateOrigin.y - viewportSize.height / 2, zoom: 1 })}>全体表示</button><output>{Math.round(view.zoom * 100)}%</output></div>
         <input className="project-title" value={project.title} aria-label="プロジェクト名" title="プロジェクト名" onChange={(event) => setProject((current) => ({ ...current, title: event.target.value }))} />
         <button type="button" className="wordmark" onClick={() => setModal({ kind: 'about' })}><strong>Graphanta</strong><span>visual mathematics</span></button>
       </header>
@@ -1774,7 +2088,7 @@ function App() {
       <main className={`workspace toolbar-${settings.toolbarSide} ${panelCollapsed.tweak && panelCollapsed.expressions ? 'panels-collapsed' : ''}`}>
         {settings.toolbarSide === 'left' && <Toolbar tools={visibleTools} activeTool={activeTool} side="left" onChange={chooseTool} />}
         <section className="plot-shell">
-          <div className="plot-viewport">
+          <div className="plot-viewport" ref={plotViewportRef}>
             <svg
               ref={svgRef}
               className={`plot-canvas cursor-${activeTool}`}
@@ -1808,8 +2122,8 @@ function App() {
                 <pattern id="pixel-grid" width={project.canvas.gridSize * 5} height={project.canvas.gridSize * 5} patternUnits="userSpaceOnUse"><rect width={project.canvas.gridSize * 5} height={project.canvas.gridSize * 5} fill="url(#pixel-small-grid)" /><path d={`M ${project.canvas.gridSize * 5} 0 L 0 0 0 ${project.canvas.gridSize * 5}`} fill="none" stroke="#cbd2e0" strokeWidth={1.1} vectorEffect="non-scaling-stroke" /></pattern>
                 <pattern id="coordinate-grid" x={coordinateOrigin.x} y={coordinateOrigin.y} width={coordinateGridStep} height={coordinateGridStep} patternUnits="userSpaceOnUse"><path d={`M ${coordinateGridStep} 0 L 0 0 0 ${coordinateGridStep}`} fill="none" stroke="#dfe4f0" strokeWidth={0.8} vectorEffect="non-scaling-stroke" /></pattern>
               </defs>
-              <rect x={view.x} y={view.y} width={project.canvas.width / view.zoom} height={project.canvas.height / view.zoom} fill={project.canvas.background} />
-              {project.canvas.gridVisible && <rect x={view.x} y={view.y} width={project.canvas.width / view.zoom} height={project.canvas.height / view.zoom} fill={project.canvas.axesVisible ? 'url(#coordinate-grid)' : 'url(#pixel-grid)'} />}
+              <rect x={view.x} y={view.y} width={visibleWorldWidth} height={visibleWorldHeight} fill={project.canvas.background} />
+              {project.canvas.gridVisible && <rect x={view.x} y={view.y} width={visibleWorldWidth} height={visibleWorldHeight} fill={project.canvas.axesVisible ? 'url(#coordinate-grid)' : 'url(#pixel-grid)'} />}
               {renderAxes()}
               {project.objects.map(renderObject)}
               {polygonPoints.length > 0 && <g data-ui-only="true" pointerEvents="none"><polyline points={polygonPoints.map((point) => `${point.x},${point.y}`).join(' ')} fill="none" stroke="#6d5dfc" strokeWidth={2} strokeDasharray="7 5" vectorEffect="non-scaling-stroke" />{polygonPoints.map((point, index) => <circle key={index} cx={point.x} cy={point.y} r={5 / view.zoom} fill="#6d5dfc" />)}</g>}
@@ -1822,6 +2136,9 @@ function App() {
               </g>}
               {selectionOverlay()}
             </svg>
+            {contextToolMenu && <div className="plot-context-tools" style={{ left: Math.min(contextToolMenu.clientX, window.innerWidth - contextToolMenu.tools.length * 48 - 18), top: Math.min(contextToolMenu.clientY, window.innerHeight - 62) }} role="menu" aria-label="現在のツールグループ">
+              {contextToolMenu.tools.map((tool) => <button key={tool} type="button" role="menuitem" className={activeTool === tool ? 'is-active' : ''} title={TOOL_LABELS[tool]} onClick={() => chooseTool(tool)}><Icon name={tool} size={21} /><span>{TOOL_LABELS[tool]}</span></button>)}
+            </div>}
           </div>
           <footer className="status-bar"><span><strong>{TOOL_LABELS[activeTool]}</strong>　{status}</span><span>{project.objects.length}要素・オフライン保存</span></footer>
         </section>
@@ -1981,7 +2298,11 @@ function TweakPanel(props: TweakPanelProps) {
   if (activeTool === 'polygon') return <><PresetHeader label="多角形" /><ShapeStyleEditor value={presets.polygon} onChange={(patch) => onPresetChange('polygon', patch)} />{polygonCount > 0 && <button type="button" className="primary-button full" onClick={onFinalizePolygon} disabled={polygonCount < 3}>多角形を確定（{polygonCount}点）</button>}</>;
   if (activeTool === 'text') return <><PresetHeader label="文字" /><LineStyleEditor value={presets.text} onChange={(patch) => onPresetChange('text', patch)} /><Field label="文字サイズ"><RangeNumber value={presets.text.fontSize} min={8} max={160} step={1} onChange={(fontSize) => onPresetChange('text', { fontSize })} /></Field></>;
   if (activeTool === 'math') return <><PresetHeader label="数式" /><LineStyleEditor value={presets.math} onChange={(patch) => onPresetChange('math', patch)} /><Field label="文字サイズ"><RangeNumber value={presets.math.fontSize} min={8} max={160} step={1} onChange={(fontSize) => onPresetChange('math', { fontSize })} /></Field></>;
-  if (activeTool === 'array') return <><PresetHeader label="アレー図" /><LineStyleEditor value={presets.array} onChange={(patch) => onPresetChange('array', patch)} /><ArrayFields value={presets.array} onChange={(patch) => onPresetChange('array', patch)} /></>;
+  if (activeTool === 'array') return <><PresetHeader label="アレー図" /><ArraySymbolStyleEditor value={presets.array} symbolSize={presets.array.symbolSize} onChange={(patch) => onPresetChange('array', patch)} /><ArrayFields value={presets.array} onChange={(patch) => onPresetChange('array', patch)} /></>;
+  if (activeTool === 'ball' || activeTool === 'person') {
+    const preset = presets[activeTool];
+    return <><PresetHeader label={TOOL_LABELS[activeTool]} /><ArraySymbolStyleEditor value={preset} symbolSize={preset.symbolSize} onChange={(patch) => onPresetChange(activeTool, patch)} /><p className="panel-hint">クリックで1個ずつ配置。ドラッグで大きさを決めると、次の配置にも引き継がれます。</p></>;
+  }
   if (activeTool === 'segment') return <><PresetHeader label="目盛り" /><LineStyleEditor value={presets.segment} onChange={(patch) => onPresetChange('segment', patch)} /><MeasureFields value={presets.segment} onChange={(patch) => onPresetChange('segment', patch)} /></>;
   return null;
 }
@@ -1995,6 +2316,16 @@ function LineStyleEditor({ value, onChange }: { value: StylePreset; onChange: (p
     <>
       <Field label="線の色"><input type="color" value={value.stroke} onChange={(event) => onChange({ stroke: event.target.value })} /></Field>
       <Field label="線の太さ"><RangeNumber value={value.strokeWidth} min={0.5} max={12} step={0.5} onChange={(strokeWidth) => onChange({ strokeWidth })} /></Field>
+      <Field label="不透明度"><RangeNumber value={value.opacity * 100} min={10} max={100} step={5} suffix="%" onChange={(opacity) => onChange({ opacity: opacity / 100 })} /></Field>
+    </>
+  );
+}
+
+function ArraySymbolStyleEditor({ value, symbolSize, onChange }: { value: StylePreset; symbolSize: number; onChange: (patch: Partial<StylePreset> & { symbolSize?: number }) => void }) {
+  return (
+    <>
+      <Field label="色"><input type="color" value={value.stroke} onChange={(event) => onChange({ stroke: event.target.value, fill: event.target.value })} /></Field>
+      <Field label="大きさ"><RangeNumber value={symbolSize} min={3} max={80} step={1} onChange={(next) => onChange({ symbolSize: next })} /></Field>
       <Field label="不透明度"><RangeNumber value={value.opacity * 100} min={10} max={100} step={5} suffix="%" onChange={(opacity) => onChange({ opacity: opacity / 100 })} /></Field>
     </>
   );
@@ -2072,7 +2403,7 @@ function SelectedObjectEditor({ object, resolvedObject, variables, coordinateUni
     <>
       <div className="selected-type"><span>{TOOL_LABELS[toolForObject(object)]}</span><code>{object.id.slice(0, 8)}</code></div>
       <div className="inline-actions"><button type="button" onClick={onDuplicate}><Icon name="duplicate" size={18} />複製</button><button type="button" className="danger" onClick={onDelete}><Icon name="delete" size={18} />削除</button></div>
-      {(object.type === 'rectangle' || object.type === 'ellipse' || object.type === 'polygon') ? <ShapeStyleEditor value={object} onChange={(patch) => onPatch(patch as Partial<GraphicObject>)} /> : <LineStyleEditor value={object} onChange={(patch) => onPatch(patch as Partial<GraphicObject>)} />}
+      {object.type === 'array' ? <ArraySymbolStyleEditor value={object} symbolSize={object.symbolSize} onChange={(patch) => onPatch(patch as Partial<GraphicObject>)} /> : (object.type === 'rectangle' || object.type === 'ellipse' || object.type === 'polygon') ? <ShapeStyleEditor value={object} onChange={(patch) => onPatch(patch as Partial<GraphicObject>)} /> : <LineStyleEditor value={object} onChange={(patch) => onPatch(patch as Partial<GraphicObject>)} />}
       {canRotate && <RotationField value={rotationExpression} variables={variables} fallback={rotationFallback} disabled={circle} onChange={(value) => setBinding('rotationDeg', value)} />}
       <Toggle label="固定する" checked={Boolean(object.locked)} onChange={(checked) => onPatch({ locked: checked })} />
       {(object.type === 'line' || object.type === 'arrow' || object.type === 'segment') && (resolvedObject.type === 'line' || resolvedObject.type === 'arrow' || resolvedObject.type === 'segment') && <BoundLineCoordinateFields object={object} resolvedObject={resolvedObject} worldToCoordinate={worldToCoordinate} onBindingChange={setBinding} />}
@@ -2140,8 +2471,8 @@ function BoundEllipseFields({ object, resolvedObject, variables, coordinateUnitP
   return <><ExpressionPointField label="中心" value={{ x: bindingExpression(object, 'centerX', center.x), y: bindingExpression(object, 'centerY', center.y) }} onChange={(point) => { onBindingChange('centerX', point.x); onBindingChange('centerY', point.y); }} /><Field label="長半径"><ExpressionRange value={bindingExpression(object, 'majorRadius', major)} variables={variables} fallback={major} min={0.1} max={50} step={0.1} onChange={(value) => onBindingChange('majorRadius', value)} /></Field><Field label="短半径"><ExpressionRange value={bindingExpression(object, 'minorRadius', minor)} variables={variables} fallback={minor} min={0.1} max={50} step={0.1} onChange={(value) => onBindingChange('minorRadius', value, ['eccentricity'])} /></Field><Field label="離心率"><ExpressionRange value={bindingExpression(object, 'eccentricity', eccentricity)} variables={variables} fallback={eccentricity} min={0} max={0.999} step={0.01} onChange={(value) => onBindingChange('eccentricity', value)} /></Field></>;
 }
 
-function ArrayFields({ value, onChange }: { value: Pick<ArrayObject, 'rowsExpr' | 'colsExpr' | 'symbol' | 'symbolSize'>; onChange: (patch: Partial<ArrayObject>) => void }) {
-  return <><Field label="行数"><AsciiText value={value.rowsExpr} onChange={(rowsExpr) => onChange({ rowsExpr })} /></Field><Field label="列数"><AsciiText value={value.colsExpr} onChange={(colsExpr) => onChange({ colsExpr })} /></Field><Field label="シンボル"><select value={value.symbol} onChange={(event) => onChange({ symbol: event.target.value as ArrayObject['symbol'] })}><option value="circle">円</option><option value="square">四角</option><option value="dot">点</option><option value="cross">×</option></select></Field><Field label="大きさ"><RangeNumber value={value.symbolSize} min={2} max={28} step={1} onChange={(symbolSize) => onChange({ symbolSize })} /></Field></>;
+function ArrayFields({ value, onChange }: { value: Pick<ArrayObject, 'rowsExpr' | 'colsExpr' | 'symbol'>; onChange: (patch: Partial<ArrayObject>) => void }) {
+  return <><Field label="行数"><AsciiText value={value.rowsExpr} onChange={(rowsExpr) => onChange({ rowsExpr })} /></Field><Field label="列数"><AsciiText value={value.colsExpr} onChange={(colsExpr) => onChange({ colsExpr })} /></Field><Field label="シンボル"><select value={value.symbol} onChange={(event) => onChange({ symbol: event.target.value as ArrayObject['symbol'] })}><option value="circle">円</option><option value="square">四角</option><option value="dot">点</option><option value="cross">×</option><option value="ball">玉</option><option value="person">人</option></select></Field></>;
 }
 
 type MeasureValue = Pick<SegmentObject, 'mode' | 'tickIntervalExpr' | 'labelIntervalExpr' | 'maxValueExpr' | 'divisionPercents' | 'showMaxValue'>;

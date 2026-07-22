@@ -11,6 +11,8 @@ export type ToolId =
   | 'text'
   | 'math'
   | 'array'
+  | 'ball'
+  | 'person'
   | 'segment'
   | 'function';
 
@@ -116,7 +118,7 @@ export interface ArrayObject extends BaseObject {
   height: number;
   rowsExpr: string;
   colsExpr: string;
-  symbol: 'circle' | 'square' | 'dot' | 'cross';
+  symbol: 'circle' | 'square' | 'dot' | 'cross' | 'ball' | 'person';
   symbolSize: number;
   rotation?: number;
 }

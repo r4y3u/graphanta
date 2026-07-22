@@ -673,3 +673,66 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   cursor: pointer;
 }
 .subtle-check input { accent-color: var(--primary); }
+
+/* alpha.2 infinite viewport, contextual tools, array symbols and screenshot modes */
+.cursor-ball, .cursor-person { cursor: crosshair; }
+.plot-viewport { position: relative; }
+.plot-context-tools {
+  position: fixed;
+  z-index: 120;
+  display: flex;
+  gap: 5px;
+  padding: 6px;
+  border: 1px solid #d4d9e8;
+  border-radius: 13px;
+  background: rgba(255,255,255,.98);
+  box-shadow: 0 14px 40px rgba(37,42,72,.24);
+  backdrop-filter: blur(14px);
+  transform: translate(-6px, -50%);
+  animation: context-tools-in .13s ease-out;
+}
+.plot-context-tools button {
+  display: grid;
+  place-items: center;
+  gap: 2px;
+  min-width: 42px;
+  min-height: 42px;
+  padding: 4px;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  color: #4a5269;
+  background: transparent;
+  cursor: pointer;
+}
+.plot-context-tools button span { max-width: 58px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 8px; font-weight: 750; }
+.plot-context-tools button:hover { color: var(--primary-strong); border-color: #d9d4ff; background: #f2f0ff; }
+.plot-context-tools button.is-active { color: #fff; background: linear-gradient(145deg,#5749e2,#6b57ef); }
+@keyframes context-tools-in { from { opacity: 0; transform: translate(-6px,-50%) scale(.92); } to { opacity: 1; transform: translate(-6px,-50%) scale(1); } }
+
+.screenshot-menu-wrap { position: relative; display: flex; align-items: stretch; }
+.menu-actions .screenshot-menu-wrap > button:first-child { border-radius: 9px 4px 4px 9px; }
+.menu-actions .screenshot-menu-toggle { min-width: 24px; padding: 0 5px; border-radius: 4px 9px 9px 4px; }
+.menu-actions .screenshot-menu-wrap > button.is-capturing { color: #fff; background: linear-gradient(145deg,#5749e2,#6b57ef); }
+.shot-next-number { display: grid; place-items: center; min-width: 20px; height: 20px; border-radius: 6px; color: #5749e2; background: #fff; font-size: 12px; font-weight: 900; }
+.screenshot-dropdown {
+  position: absolute;
+  z-index: 150;
+  top: calc(100% + 7px);
+  left: 0;
+  width: 230px;
+  display: grid;
+  gap: 4px;
+  padding: 7px;
+  border: 1px solid #d5daea;
+  border-radius: 12px;
+  background: rgba(255,255,255,.99);
+  box-shadow: 0 16px 42px rgba(37,42,72,.22);
+}
+.menu-actions .screenshot-dropdown button { display: grid; grid-template-columns: 28px 1fr; justify-content: stretch; min-height: 48px; padding: 6px 8px; text-align: left; }
+.screenshot-dropdown button > span { display: grid; gap: 1px; }
+.screenshot-dropdown strong { font-size: 11px; }
+.screenshot-dropdown small { color: #7a8193; font-size: 9px; font-weight: 550; }
+
+.rotation-handle { cursor: grab; filter: drop-shadow(0 2px 3px rgba(48,40,140,.22)); }
+.rotation-handle:hover { fill: #ece9ff; stroke-width: 2.3; }
+.rotation-handle:active { cursor: grabbing; }

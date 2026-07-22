@@ -20,6 +20,8 @@ export function Icon({ name, size = 22 }: IconProps) {
     case 'text': return <svg {...common}><path d="M5 5h14M12 5v14M8 19h8"/></svg>;
     case 'math': return <svg {...common}><path d="M5 6h12l-6 6 6 6H5"/><path d="M18 9h2M19 8v2"/></svg>;
     case 'array': return <svg {...common}>{[6,12,18].flatMap((x) => [6,12,18].map((y) => <circle key={`${x}-${y}`} cx={x} cy={y} r="1.6"/>))}</svg>;
+    case 'ball': return <svg {...common}><defs><radialGradient id="icon-ball" cx="35%" cy="30%"><stop offset="0" stopColor="currentColor" stopOpacity=".15"/><stop offset=".65" stopColor="currentColor" stopOpacity=".55"/><stop offset="1" stopColor="currentColor" stopOpacity=".9"/></radialGradient></defs><circle cx="12" cy="12" r="7.5" fill="url(#icon-ball)"/><path d="M8 8c1.2-1 2.4-1.4 4-1.4"/></svg>;
+    case 'person': return <svg {...common}><circle cx="12" cy="5.5" r="2.4" fill="currentColor" stroke="none"/><path d="M8.2 10.2c0-1.4 1.1-2.5 2.5-2.5h2.6c1.4 0 2.5 1.1 2.5 2.5v4.1h-2.2V21h-3.2v-6.7H8.2z" fill="currentColor" stroke="none"/><path d="M8.2 10.5L5.4 15M15.8 10.5l2.8 4.5"/></svg>;
     case 'segment': return <svg {...common}><path d="M3 12h18"/><path d="M4 8v8M9 9v6M15 9v6M20 8v8"/></svg>;
     case 'function': return <svg {...common}><path d="M4 18c4-10 6-13 9-13 4 0 2 14 7 14"/><path d="M4 12h16M12 4v16"/></svg>;
     case 'undo': return <svg {...common}><path d="M9 7L4 12l5 5"/><path d="M5 12h8a6 6 0 016 6"/></svg>;

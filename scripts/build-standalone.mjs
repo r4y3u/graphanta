@@ -26,7 +26,7 @@ let standalone = builtHtml
   // バンドル内のHTML文字列に含まれる </head> を誤って置換しないための順序です。
   .replace('</head>', () => `<style>${css.replace(/<\/style/gi, '<\\/style')}</style></head>`)
   .replace(scriptMatch[0], () => `<script type="module">${javascript.replace(/<\/script/gi, '<\\/script')}</script>`)
-  .replace('<title>Graphanta</title>', '<title>Graphanta v0.2.0-alpha.1</title>');
+  .replace('<title>Graphanta</title>', '<title>Graphanta v0.2.0-alpha.2</title>');
 
 const notice = '<!-- このHTMLは単体起動版です。EdgeまたはChromeで直接開けます。 -->\n';
 standalone = standalone.replace('<!doctype html>', `<!doctype html>\n${notice}`);

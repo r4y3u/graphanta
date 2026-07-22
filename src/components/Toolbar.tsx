@@ -21,10 +21,11 @@ const GROUPS: ToolGroup[] = [
   { id: 'linework', members: ['line', 'arrow', 'pen'], fallback: 'line' },
   { id: 'shapes', members: ['rectangle', 'ellipse', 'polygon'], fallback: 'rectangle' },
   { id: 'writing', members: ['text', 'math'], fallback: 'text' },
+  { id: 'arrays', members: ['array', 'ball', 'person'], fallback: 'array' },
 ];
 
 const GROUP_MEMBER_SET = new Set(GROUPS.flatMap((group) => group.members));
-const SINGLE_ORDER: ToolId[] = ['array', 'segment', 'function'];
+const SINGLE_ORDER: ToolId[] = ['segment', 'function'];
 
 export function Toolbar({ tools, activeTool, side, onChange }: ToolbarProps) {
   const [expanded, setExpanded] = useState<string | null>(null);
@@ -33,6 +34,7 @@ export function Toolbar({ tools, activeTool, side, onChange }: ToolbarProps) {
     linework: 'line',
     shapes: 'rectangle',
     writing: 'text',
+    arrays: 'array',
   });
   const closeTimer = useRef<number | null>(null);
 
