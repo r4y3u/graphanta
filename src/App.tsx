@@ -258,12 +258,22 @@ function normalizeObject(object: GraphicObject): GraphicObject {
 
 function normalizeProject(value: GraphantaProject): GraphantaProject {
   const base = createInitialProject();
+  const normalizedObjects = value.objects.map(normalizeObject);
+  const groupCounts = new Map<string, number>();
+  normalizedObjects.forEach((object) => {
+    if (object.groupId) groupCounts.set(object.groupId, (groupCounts.get(object.groupId) ?? 0) + 1);
+  });
+  const objects = normalizedObjects.map((object) => {
+    if (!object.groupId || (groupCounts.get(object.groupId) ?? 0) >= 2) return object;
+    const { groupId: _groupId, ...rest } = object;
+    return rest as GraphicObject;
+  });
   return {
     ...base,
     ...value,
     appVersion: APP_VERSION,
     canvas: { ...base.canvas, ...value.canvas },
-    objects: value.objects.map(normalizeObject),
+    objects,
     expressions: Array.isArray(value.expressions) ? value.expressions : base.expressions,
     variables: Array.isArray(value.variables) ? value.variables : base.variables,
   };
@@ -346,6 +356,34 @@ function unionBounds(objects: GraphicObject[]): { x: number; y: number; width: n
   const right = Math.max(...bounds.map((item) => item.x + item.width));
   const bottom = Math.max(...bounds.map((item) => item.y + item.height));
   return { x, y, width: right - x, height: bottom - y };
+}
+
+function selectionIdsForObject(objects: GraphicObject[], objectId: string): string[] {
+  const object = objects.find((item) => item.id === objectId);
+  if (!object) return [];
+  if (!object.groupId) return [object.id];
+  return objects.filter((item) => item.groupId === object.groupId).map((item) => item.id);
+}
+
+function expandSelectionIds(objects: GraphicObject[], ids: string[]): string[] {
+  const requested = new Set(ids);
+  const groupIds = new Set(objects.filter((object) => requested.has(object.id) && object.groupId).map((object) => object.groupId as string));
+  return objects.filter((object) => requested.has(object.id) || Boolean(object.groupId && groupIds.has(object.groupId))).map((object) => object.id);
+}
+
+function selectionUnits(objects: GraphicObject[]): GraphicObject[][] {
+  const units: GraphicObject[][] = [];
+  const seenGroups = new Set<string>();
+  objects.forEach((object) => {
+    if (!object.groupId) {
+      units.push([object]);
+      return;
+    }
+    if (seenGroups.has(object.groupId)) return;
+    seenGroups.add(object.groupId);
+    units.push(objects.filter((item) => item.groupId === object.groupId));
+  });
+  return units;
 }
 
 function rectContainsBounds(container: { x: number; y: number; width: number; height: number }, child: { x: number; y: number; width: number; height: number }): boolean {
@@ -666,6 +704,9 @@ function App() {
   const selectedId = selectedIds.at(-1) ?? null;
   const setSelectedId = useCallback((value: string | null) => setSelectedIds(value ? [value] : []), []);
   const selectedObjects = useMemo(() => project.objects.filter((object) => selectedIds.includes(object.id)), [project.objects, selectedIds]);
+  const selectedUnits = useMemo(() => selectionUnits(selectedObjects), [selectedObjects]);
+  const selectedGroupIds = useMemo(() => [...new Set(selectedObjects.flatMap((object) => object.groupId ? [object.groupId] : []))], [selectedObjects]);
+  const isSingleGroupSelection = selectedUnits.length === 1 && selectedObjects.length > 1 && selectedObjects.every((object) => object.groupId === selectedObjects[0]?.groupId);
   const selectedObject = useMemo(() => project.objects.find((object) => object.id === selectedId) ?? null, [project.objects, selectedId]);
   const visibleTools = useMemo(() => settings.visibleTools.filter((tool) => ALL_TOOLS.includes(tool)), [settings.visibleTools]);
   const coordinateUnitPx = Math.min(project.canvas.width, project.canvas.height) / (2 * Math.max(1, project.canvas.coordinatePrecision));
@@ -757,42 +798,77 @@ function App() {
 
   const duplicateSelected = useCallback(() => {
     if (!selectedObjects.length) return;
-    const duplicates = selectedObjects.map((object) => translateObject({ ...structuredClone(object), id: createId(object.type) }, 20, 20));
+    const duplicateGroupIds = new Map<string, string>();
+    const duplicates = selectedObjects.map((object) => {
+      const clone = { ...structuredClone(object), id: createId(object.type) } as GraphicObject;
+      if (object.groupId) {
+        const groupId = duplicateGroupIds.get(object.groupId) ?? createId('group');
+        duplicateGroupIds.set(object.groupId, groupId);
+        clone.groupId = groupId;
+      }
+      return translateObject(clone, 20, 20);
+    });
     mutateProject((current) => ({ ...current, objects: [...current.objects, ...duplicates] }));
     setSelectedIds(duplicates.map((object) => object.id));
     setStatus(`${duplicates.length}要素を複製しました`);
   }, [mutateProject, selectedObjects]);
 
+  const groupSelected = useCallback(() => {
+    if (selectedObjects.length < 2 || isSingleGroupSelection) return;
+    const targets = new Set(selectedIds);
+    const groupId = createId('group');
+    mutateProject((current) => ({
+      ...current,
+      objects: current.objects.map((object) => targets.has(object.id) ? { ...object, groupId } as GraphicObject : object),
+    }));
+    setStatus(`${selectedObjects.length}要素をグループ化しました`);
+  }, [isSingleGroupSelection, mutateProject, selectedIds, selectedObjects.length]);
+
+  const ungroupSelected = useCallback(() => {
+    if (!selectedGroupIds.length) return;
+    const targets = new Set(selectedGroupIds);
+    mutateProject((current) => ({
+      ...current,
+      objects: current.objects.map((object) => {
+        if (!object.groupId || !targets.has(object.groupId)) return object;
+        const { groupId: _groupId, ...rest } = object;
+        return rest as GraphicObject;
+      }),
+    }));
+    setStatus(`${selectedGroupIds.length}グループを解除しました`);
+  }, [mutateProject, selectedGroupIds]);
+
   const alignSelected = useCallback((mode: AlignMode) => {
-    const movable = selectedResolvedObjects.filter((object) => !object.locked);
-    if (movable.length < 2) return;
-    const group = unionBounds(movable);
+    const movableUnits = selectionUnits(selectedResolvedObjects).filter((unit) => unit.every((object) => !object.locked));
+    if (movableUnits.length < 2) return;
+    const unitEntries = movableUnits.map((objects) => ({ objects, bounds: unionBounds(objects)! }));
+    const group = unionBounds(movableUnits.flat());
     if (!group) return;
     const translated = new Map<string, GraphicObject>();
+    const translateUnit = (entry: { objects: GraphicObject[]; bounds: { x: number; y: number; width: number; height: number } }, dx: number, dy: number) => {
+      entry.objects.forEach((object) => translated.set(object.id, clearGeometryBindings(translateObject(object, dx, dy))));
+    };
     if (mode === 'distributeX' || mode === 'distributeY') {
-      if (movable.length < 3) return;
+      if (unitEntries.length < 3) return;
       const horizontal = mode === 'distributeX';
-      const sorted = [...movable].sort((a, b) => {
-        const aBounds = getDisplayBounds(a);
-        const bBounds = getDisplayBounds(b);
-        const aCenter = horizontal ? aBounds.x + aBounds.width / 2 : aBounds.y + aBounds.height / 2;
-        const bCenter = horizontal ? bBounds.x + bBounds.width / 2 : bBounds.y + bBounds.height / 2;
+      const sorted = [...unitEntries].sort((a, b) => {
+        const aCenter = horizontal ? a.bounds.x + a.bounds.width / 2 : a.bounds.y + a.bounds.height / 2;
+        const bCenter = horizontal ? b.bounds.x + b.bounds.width / 2 : b.bounds.y + b.bounds.height / 2;
         return aCenter - bCenter;
       });
-      const firstBounds = getDisplayBounds(sorted[0]);
-      const lastBounds = getDisplayBounds(sorted.at(-1)!);
-      const firstCenter = horizontal ? firstBounds.x + firstBounds.width / 2 : firstBounds.y + firstBounds.height / 2;
-      const lastCenter = horizontal ? lastBounds.x + lastBounds.width / 2 : lastBounds.y + lastBounds.height / 2;
+      const first = sorted[0].bounds;
+      const last = sorted.at(-1)!.bounds;
+      const firstCenter = horizontal ? first.x + first.width / 2 : first.y + first.height / 2;
+      const lastCenter = horizontal ? last.x + last.width / 2 : last.y + last.height / 2;
       const step = (lastCenter - firstCenter) / (sorted.length - 1);
-      sorted.forEach((object, index) => {
-        const bounds = getDisplayBounds(object);
-        const center = horizontal ? bounds.x + bounds.width / 2 : bounds.y + bounds.height / 2;
+      sorted.forEach((entry, index) => {
+        const center = horizontal ? entry.bounds.x + entry.bounds.width / 2 : entry.bounds.y + entry.bounds.height / 2;
         const delta = firstCenter + step * index - center;
-        translated.set(object.id, clearGeometryBindings(translateObject(object, horizontal ? delta : 0, horizontal ? 0 : delta)));
+        translateUnit(entry, horizontal ? delta : 0, horizontal ? 0 : delta);
       });
     } else {
-      movable.forEach((object) => {
-        const bounds = getDisplayBounds(object);
+      unitEntries.forEach((entry) => {
+        const bounds = entry.bounds;
         let dx = 0;
         let dy = 0;
         if (mode === 'left') dx = group.x - bounds.x;
@@ -801,11 +877,11 @@ function App() {
         if (mode === 'top') dy = group.y - bounds.y;
         if (mode === 'middle') dy = group.y + group.height / 2 - (bounds.y + bounds.height / 2);
         if (mode === 'bottom') dy = group.y + group.height - (bounds.y + bounds.height);
-        translated.set(object.id, clearGeometryBindings(translateObject(object, dx, dy)));
+        translateUnit(entry, dx, dy);
       });
     }
     mutateProject((current) => ({ ...current, objects: current.objects.map((object) => translated.get(object.id) ?? object) }));
-    setStatus('選択要素を整列しました');
+    setStatus('選択した要素・グループを整列しました');
   }, [mutateProject, selectedResolvedObjects]);
 
   const arrangeSelected = useCallback((mode: ArrangeMode) => {
@@ -884,6 +960,9 @@ function App() {
       } else if (command && event.key.toLowerCase() === 'y') {
         event.preventDefault();
         redo();
+      } else if (command && event.key.toLowerCase() === 'g') {
+        event.preventDefault();
+        event.shiftKey ? ungroupSelected() : groupSelected();
       } else if (event.key === 'Delete' || event.key === 'Backspace') {
         event.preventDefault();
         deleteSelected();
@@ -910,13 +989,14 @@ function App() {
         const amount = event.shiftKey ? 10 : 1;
         const dx = event.key === 'ArrowLeft' ? -amount : event.key === 'ArrowRight' ? amount : 0;
         const dy = event.key === 'ArrowUp' ? -amount : event.key === 'ArrowDown' ? amount : 0;
-        const replacements = new Map(selectedResolvedObjects.map((object) => [object.id, clearGeometryBindings(translateObject(object, dx, dy))]));
+        const movable = selectionUnits(selectedResolvedObjects).filter((unit) => unit.every((object) => !object.locked)).flat();
+        const replacements = new Map(movable.map((object) => [object.id, clearGeometryBindings(translateObject(object, dx, dy))]));
         mutateProject((current) => ({ ...current, objects: current.objects.map((object) => replacements.get(object.id) ?? object) }));
       }
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [deleteSelected, mutateProject, polygonPoints.length, redo, selectedResolvedObjects, undo]);
+  }, [deleteSelected, groupSelected, mutateProject, polygonPoints.length, redo, selectedResolvedObjects, undo, ungroupSelected]);
 
   const rawWorldPoint = useCallback((clientX: number, clientY: number): Point => {
     const svg = svgRef.current;
@@ -1212,16 +1292,25 @@ function App() {
       }
       const object = project.objects.find((item) => item.id === objectId);
       if (!object) return;
+      const clickedIds = selectionIdsForObject(project.objects, objectId);
       if (event.shiftKey) {
-        setSelectedIds((current) => current.includes(objectId) ? current.filter((id) => id !== objectId) : [...current, objectId]);
+        setSelectedIds((current) => {
+          const selected = new Set(current);
+          const remove = clickedIds.every((id) => selected.has(id));
+          clickedIds.forEach((id) => remove ? selected.delete(id) : selected.add(id));
+          return expandSelectionIds(project.objects, [...selected]);
+        });
         return;
       }
-      const nextIds = selectedIds.includes(objectId) ? selectedIds : [objectId];
+      const nextIds = clickedIds.every((id) => selectedIds.includes(id)) ? expandSelectionIds(project.objects, selectedIds) : clickedIds;
       setSelectedIds(nextIds);
-      if (object.locked) return;
+      const movableIds = new Set(selectionUnits(project.objects.filter((item) => nextIds.includes(item.id)))
+        .filter((unit) => unit.every((item) => !item.locked))
+        .flat()
+        .map((item) => item.id));
       const originals = nextIds
         .map((id) => project.objects.find((item) => item.id === id))
-        .filter((item): item is GraphicObject => item !== undefined && !item.locked)
+        .filter((item): item is GraphicObject => item !== undefined && movableIds.has(item.id))
         .map(resolveObject)
         .map((item) => structuredClone(item));
       if (!originals.length) return;
@@ -1482,8 +1571,14 @@ function App() {
       const end = rawWorldPoint(event.clientX, event.clientY);
       const rect = normalizeRect(interaction.start, end);
       if (rect.width >= 3 / view.zoom || rect.height >= 3 / view.zoom) {
-        const matches = resolvedObjects.filter((object) => rectContainsBounds(rect, getDisplayBounds(object))).map((object) => object.id);
-        setSelectedIds((current) => interaction.additive ? [...new Set([...current, ...matches])] : matches);
+        const matches = selectionUnits(resolvedObjects)
+          .filter((unit) => {
+            const bounds = unionBounds(unit);
+            return Boolean(bounds && rectContainsBounds(rect, bounds));
+          })
+          .flat()
+          .map((object) => object.id);
+        setSelectedIds((current) => interaction.additive ? expandSelectionIds(project.objects, [...current, ...matches]) : expandSelectionIds(project.objects, matches));
         setStatus(matches.length ? `${matches.length}要素を範囲選択しました` : '選択を解除しました');
       }
       setSelectionBox(null);
@@ -2162,6 +2257,8 @@ function App() {
               onObjectChange={(updater) => selectedObject && updateObject(selectedObject.id, updater)}
               onDelete={deleteSelected}
               onDuplicate={duplicateSelected}
+              onGroup={groupSelected}
+              onUngroup={ungroupSelected}
               onAlign={alignSelected}
               onArrange={arrangeSelected}
               onFinalizePolygon={finalizePolygon}
@@ -2214,6 +2311,8 @@ interface TweakPanelProps {
   onObjectChange: (updater: (object: GraphicObject) => GraphicObject) => void;
   onDelete: () => void;
   onDuplicate: () => void;
+  onGroup: () => void;
+  onUngroup: () => void;
   onAlign: (mode: AlignMode) => void;
   onArrange: (mode: ArrangeMode) => void;
   onFinalizePolygon: () => void;
@@ -2222,13 +2321,28 @@ interface TweakPanelProps {
 }
 
 function TweakPanel(props: TweakPanelProps) {
-  const { project, activeTool, selected, selectedObjects, resolvedSelected, presets, coordinateUnitPx, worldToCoordinate, coordinateToWorld, onPresetChange, onCanvasChange, onObjectChange, onDelete, onDuplicate, onAlign, onArrange, onFinalizePolygon, polygonCount, onCreateFromCoordinates } = props;
+  const { project, activeTool, selected, selectedObjects, resolvedSelected, presets, coordinateUnitPx, worldToCoordinate, coordinateToWorld, onPresetChange, onCanvasChange, onObjectChange, onDelete, onDuplicate, onGroup, onUngroup, onAlign, onArrange, onFinalizePolygon, polygonCount, onCreateFromCoordinates } = props;
   const navigationMode = activeTool === 'select' || activeTool === 'pan' || activeTool === 'zoom';
   const showSelected = selectedObjects.length === 1 && Boolean(selected) && activeTool !== 'pan' && activeTool !== 'zoom' && (activeTool === 'select' || (selected ? toolForObject(selected) === activeTool : false));
   const patchObject = (changes: Partial<GraphicObject>) => onObjectChange((object) => ({ ...object, ...changes } as GraphicObject));
 
   if (activeTool === 'select' && selectedObjects.length > 1) {
-    return <MultiSelectionEditor count={selectedObjects.length} onAlign={onAlign} onArrange={onArrange} onDelete={onDelete} onDuplicate={onDuplicate} />;
+    const units = selectionUnits(selectedObjects);
+    const groupIds = [...new Set(selectedObjects.flatMap((object) => object.groupId ? [object.groupId] : []))];
+    const singleGroup = units.length === 1 && groupIds.length === 1;
+    return <MultiSelectionEditor
+      count={selectedObjects.length}
+      unitCount={units.length}
+      isSingleGroup={singleGroup}
+      canGroup={!singleGroup}
+      canUngroup={groupIds.length > 0}
+      onGroup={onGroup}
+      onUngroup={onUngroup}
+      onAlign={onAlign}
+      onArrange={onArrange}
+      onDelete={onDelete}
+      onDuplicate={onDuplicate}
+    />;
   }
 
   if (navigationMode && !showSelected) {
@@ -2340,8 +2454,14 @@ function ShapeStyleEditor({ value, onChange }: { value: StylePreset; onChange: (
   );
 }
 
-function MultiSelectionEditor({ count, onAlign, onArrange, onDelete, onDuplicate }: {
+function MultiSelectionEditor({ count, unitCount, isSingleGroup, canGroup, canUngroup, onGroup, onUngroup, onAlign, onArrange, onDelete, onDuplicate }: {
   count: number;
+  unitCount: number;
+  isSingleGroup: boolean;
+  canGroup: boolean;
+  canUngroup: boolean;
+  onGroup: () => void;
+  onUngroup: () => void;
   onAlign: (mode: AlignMode) => void;
   onArrange: (mode: ArrangeMode) => void;
   onDelete: () => void;
@@ -2349,18 +2469,22 @@ function MultiSelectionEditor({ count, onAlign, onArrange, onDelete, onDuplicate
 }) {
   return (
     <>
-      <div className="selected-type"><span>複数選択</span><code>{count}要素</code></div>
+      <div className="selected-type"><span>{isSingleGroup ? 'グループ' : '複数選択'}</span><code>{isSingleGroup ? `${count}要素` : `${unitCount}組・${count}要素`}</code></div>
       <div className="inline-actions"><button type="button" onClick={onDuplicate}><Icon name="duplicate" size={18} />複製</button><button type="button" className="danger" onClick={onDelete}><Icon name="delete" size={18} />削除</button></div>
+      <div className="multi-action-grid two-columns group-actions">
+        <button type="button" onClick={onGroup} disabled={!canGroup}>グループ化</button>
+        <button type="button" onClick={onUngroup} disabled={!canUngroup}>グループ解除</button>
+      </div>
       <div className="subheading">整列</div>
       <div className="multi-action-grid">
-        <button type="button" onClick={() => onAlign('left')}>左</button>
-        <button type="button" onClick={() => onAlign('center')}>左右中央</button>
-        <button type="button" onClick={() => onAlign('right')}>右</button>
-        <button type="button" onClick={() => onAlign('top')}>上</button>
-        <button type="button" onClick={() => onAlign('middle')}>上下中央</button>
-        <button type="button" onClick={() => onAlign('bottom')}>下</button>
-        <button type="button" onClick={() => onAlign('distributeX')} disabled={count < 3}>横に等間隔</button>
-        <button type="button" onClick={() => onAlign('distributeY')} disabled={count < 3}>縦に等間隔</button>
+        <button type="button" onClick={() => onAlign('left')} disabled={unitCount < 2}>左</button>
+        <button type="button" onClick={() => onAlign('center')} disabled={unitCount < 2}>左右中央</button>
+        <button type="button" onClick={() => onAlign('right')} disabled={unitCount < 2}>右</button>
+        <button type="button" onClick={() => onAlign('top')} disabled={unitCount < 2}>上</button>
+        <button type="button" onClick={() => onAlign('middle')} disabled={unitCount < 2}>上下中央</button>
+        <button type="button" onClick={() => onAlign('bottom')} disabled={unitCount < 2}>下</button>
+        <button type="button" onClick={() => onAlign('distributeX')} disabled={unitCount < 3}>横に等間隔</button>
+        <button type="button" onClick={() => onAlign('distributeY')} disabled={unitCount < 3}>縦に等間隔</button>
       </div>
       <div className="subheading">重なり順</div>
       <div className="multi-action-grid two-columns">
@@ -2369,7 +2493,7 @@ function MultiSelectionEditor({ count, onAlign, onArrange, onDelete, onDuplicate
         <button type="button" onClick={() => onArrange('backward')}>一つ後ろへ</button>
         <button type="button" onClick={() => onArrange('back')}>最背面</button>
       </div>
-      <p className="panel-hint">Shift＋クリックで選択を追加・解除できます。空白部分をドラッグすると範囲選択になります。</p>
+      <p className="panel-hint">Shift＋クリックで選択を追加・解除できます。Ctrl＋Gでグループ化、Ctrl＋Shift＋Gで解除できます。</p>
     </>
   );
 }

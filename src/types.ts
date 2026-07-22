@@ -47,6 +47,8 @@ export interface BaseObject {
   opacity: number;
   locked?: boolean;
   hidden?: boolean;
+  /** Objects sharing the same identifier are selected and moved as one group. */
+  groupId?: string;
   /** Optional persistent pivot used by rotated freeform objects. */
   rotationCenter?: Point;
   /** Coordinate/geometry expressions evaluated against project variables. */

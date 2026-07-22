@@ -1,4 +1,4 @@
-const CACHE = 'graphanta-runtime-v2';
+const CACHE = 'graphanta-runtime-v3';
 const ROOT = new URL('./', self.registration.scope).toString();
 
 async function precacheAppShell() {
