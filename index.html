@@ -1,6 +1,6 @@
 <!doctype html>
 <!-- 単体起動版: CSS・JavaScriptを内包し、通信なしで動作します。 -->
-<html lang="ja"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover"><meta name="theme-color" content="#4f46e5"><meta name="description" content="Graphanta - 数学的な思考と表現を支える図・グラフ作成アプリ"><title>Graphanta v0.2.0-alpha.6</title><style>:root {
+<html lang="ja"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover"><meta name="theme-color" content="#4f46e5"><meta name="description" content="Graphanta - 数学的な思考と表現を支える図・グラフ作成アプリ"><title>Graphanta v0.2.0-alpha.7</title><style>:root {
   font-family: Inter, "Noto Sans JP", "Yu Gothic UI", "Yu Gothic", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
   color: #20273b;
   background: #edf0f8;
@@ -756,6 +756,155 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .bundle-value-control > input[type="range"] { grid-column: 1; grid-row: 1; width: 100%; accent-color: var(--primary); }
 .bundle-value-control > input[type="text"] { grid-column: 2; grid-row: 1 / span 2; width: 100%; }
 .bundle-value-stops { grid-column: 1; display: flex; justify-content: space-between; color: #7a8193; font-size: 8px; font-weight: 700; line-height: 1; }
+
+/* alpha.7 touch-drag tool selection and tactile feedback */
+button:not(:disabled) {
+  -webkit-tap-highlight-color: transparent;
+}
+
+.tool-button,
+.tool-flyout-button,
+.menu-actions button,
+.view-control button,
+.app-mark,
+.panel-heading,
+.field-stepper button,
+.display-mode button,
+.measure-mode button,
+.inline-actions button,
+.expression-actions button,
+.multi-action-grid button,
+.subheading button,
+.division-heading button,
+.mini-delete,
+.plot-context-tools button,
+.screenshot-dropdown button,
+.settings-footer button,
+.modal button {
+  transition:
+    color .14s ease,
+    background-color .14s ease,
+    border-color .14s ease,
+    box-shadow .16s ease,
+    filter .14s ease,
+    transform .12s cubic-bezier(.2,.8,.25,1);
+}
+
+.menu-actions button:active:not(:disabled),
+.view-control button:active:not(:disabled),
+.panel-content button:active:not(:disabled),
+.panel-heading:active,
+.settings-footer button:active:not(:disabled),
+.modal button:active:not(:disabled),
+.app-mark:active {
+  transform: translateY(1px) scale(.96);
+  box-shadow: inset 0 1px 3px rgba(45, 39, 122, .13), 0 1px 2px rgba(45, 39, 122, .08);
+}
+
+.panel-heading:hover {
+  color: var(--primary-strong);
+  background: linear-gradient(180deg, #fff, #f5f3ff);
+}
+.panel-heading:active {
+  background: #efedff;
+}
+
+.tool-group-main {
+  touch-action: none;
+}
+.tool-group.is-touch-gesture {
+  z-index: 70;
+}
+.tool-group.is-touch-gesture .tool-group-main {
+  color: #fff;
+  border-color: transparent;
+  background: linear-gradient(145deg, #4f41d5, #735ff2);
+  box-shadow: 0 4px 12px rgba(86,72,223,.32), inset 0 1px 0 rgba(255,255,255,.22);
+  transform: scale(.94);
+}
+.tool-group.is-touch-gesture .group-caret {
+  opacity: 1;
+  animation: caret-pulse .62s ease-in-out infinite alternate;
+}
+.tool-flyout.is-gesture-open {
+  border-color: #bdb6f3;
+  box-shadow: 0 18px 48px rgba(50,42,132,.28), 0 0 0 3px rgba(86,72,223,.09);
+  user-select: none;
+  -webkit-user-select: none;
+}
+.tool-flyout-button.is-drag-target {
+  color: #fff;
+  border-color: transparent;
+  background: linear-gradient(145deg, #5749e2, #745ff2);
+  box-shadow: 0 6px 15px rgba(86,72,223,.28);
+  transform: translateX(3px) scale(1.025);
+}
+.tool-flyout-button.is-drag-target svg {
+  filter: drop-shadow(0 1px 2px rgba(24,20,72,.24));
+}
+
+.tool-button.is-active,
+.display-mode button.is-active,
+.measure-mode button.is-active,
+.plot-context-tools button.is-active {
+  animation: selected-pop .22s cubic-bezier(.2,.85,.25,1);
+}
+
+@keyframes selected-pop {
+  0% { transform: scale(.91); }
+  72% { transform: scale(1.045); }
+  100% { transform: scale(1); }
+}
+@keyframes caret-pulse {
+  from { transform: translateX(0); }
+  to { transform: translateX(-2px); }
+}
+.toolbar-left .tool-group.is-touch-gesture .group-caret {
+  animation-name: caret-pulse-left;
+}
+@keyframes caret-pulse-left {
+  from { transform: rotate(180deg) translateX(0); }
+  to { transform: rotate(180deg) translateX(-2px); }
+}
+
+@media (pointer: coarse) {
+  .tool-flyout {
+    min-width: 154px;
+    padding: 7px;
+    gap: 5px;
+  }
+  .tool-flyout-button {
+    min-height: 48px;
+    padding: 6px 11px;
+    font-size: 12px;
+  }
+  .tool-flyout-button.is-drag-target {
+    transform: translateX(4px) scale(1.035);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tool-button,
+  .tool-flyout,
+  .tool-flyout-button,
+  .menu-actions button,
+  .view-control button,
+  .app-mark,
+  .panel-heading,
+  .panel-content,
+  .side-panel,
+  .workspace,
+  .field-stepper button,
+  .display-mode button,
+  .measure-mode button,
+  .inline-actions button,
+  .expression-actions button,
+  .multi-action-grid button,
+  .plot-context-tools button {
+    animation: none !important;
+    transition-duration: .01ms !important;
+  }
+}
 </style></head><body><div id="root"></div><script>const __vite__mapDeps=(i,m=__vite__mapDeps,d=(m.f||(m.f=["./codeMirrorModule-Bucv2d7q.js","../codeMirrorModule.C3UTv-Ge.css"])))=>i.map(i=>d[i]);
 var R1=Object.defineProperty;var j1=(n,e,i)=>e in n?R1(n,e,{enumerable:!0,configurable:!0,writable:!0,value:i}):n[e]=i;var Te=(n,e,i)=>j1(n,typeof e!="symbol"?e+"":e,i);(function(){const e=document.createElement("link").relList;if(e&&e.supports&&e.supports("modulepreload"))return;for(const l of document.querySelectorAll('link[rel="modulepreload"]'))s(l);new MutationObserver(l=>{for(const o of l)if(o.type==="childList")for(const u of o.addedNodes)u.tagName==="LINK"&&u.rel==="modulepreload"&&s(u)}).observe(document,{childList:!0,subtree:!0});function i(l){const o={};return l.integrity&&(o.integrity=l.integrity),l.referrerPolicy&&(o.referrerPolicy=l.referrerPolicy),l.crossOrigin==="use-credentials"?o.credentials="include":l.crossOrigin==="anonymous"?o.credentials="omit":o.credentials="same-origin",o}function s(l){if(l.ep)return;l.ep=!0;const o=i(l);fetch(l.href,o)}})();function L1(n){return n&&n.__esModule&&Object.prototype.hasOwnProperty.call(n,"default")?n.default:n}var Yf={exports:{}},Ma={};/**
  * @license React
@@ -3770,6 +3919,7 @@ const GROUP_MEMBER_SET = new Set(GROUPS.flatMap((group) => group.members));
 const SINGLE_ORDER = ['segment', 'function'];
 function Toolbar({ tools, activeTool, side, onChange }) {
     const [expanded, setExpanded] = (0, react_1.useState)(null);
+    const [touchGesture, setTouchGesture] = (0, react_1.useState)(null);
     const [representatives, setRepresentatives] = (0, react_1.useState)({
         navigation: 'select',
         linework: 'line',
@@ -3778,6 +3928,9 @@ function Toolbar({ tools, activeTool, side, onChange }) {
         arrays: 'array',
     });
     const closeTimer = (0, react_1.useRef)(null);
+    const gestureRef = (0, react_1.useRef)(null);
+    const suppressClickRef = (0, react_1.useRef)(false);
+    const suppressTimer = (0, react_1.useRef)(null);
     (0, react_1.useEffect)(() => {
         const group = GROUPS.find((item) => item.members.includes(activeTool));
         if (group)
@@ -3786,6 +3939,8 @@ function Toolbar({ tools, activeTool, side, onChange }) {
     (0, react_1.useEffect)(() => () => {
         if (closeTimer.current !== null)
             window.clearTimeout(closeTimer.current);
+        if (suppressTimer.current !== null)
+            window.clearTimeout(suppressTimer.current);
     }, []);
     const visible = (0, react_1.useMemo)(() => new Set(tools), [tools]);
     const groups = GROUPS.map((group) => ({ ...group, members: group.members.filter((tool) => visible.has(tool)) }))
@@ -3797,6 +3952,8 @@ function Toolbar({ tools, activeTool, side, onChange }) {
         setExpanded(groupId);
     };
     const scheduleClose = () => {
+        if (gestureRef.current)
+            return;
         if (closeTimer.current !== null)
             window.clearTimeout(closeTimer.current);
         closeTimer.current = window.setTimeout(() => setExpanded(null), 120);
@@ -3806,21 +3963,97 @@ function Toolbar({ tools, activeTool, side, onChange }) {
         setExpanded(null);
         onChange(tool);
     };
+    const setGesture = (gesture) => {
+        gestureRef.current = gesture;
+        setTouchGesture(gesture);
+    };
+    const toolUnderPointer = (group, clientX, clientY) => {
+        const target = document.elementFromPoint(clientX, clientY);
+        const button = target?.closest(`[data-toolbar-group="${group.id}"][data-tool]`);
+        const tool = button?.dataset.tool;
+        return tool && group.members.includes(tool) ? tool : null;
+    };
+    const beginTouchGesture = (event, group, representative) => {
+        if (event.pointerType === 'mouse' || event.button !== 0)
+            return;
+        event.preventDefault();
+        if (closeTimer.current !== null)
+            window.clearTimeout(closeTimer.current);
+        try {
+            event.currentTarget.setPointerCapture(event.pointerId);
+        }
+        catch {
+            // Pointer captureが使えない環境でも、通常のpointerイベントで継続する。
+        }
+        const gesture = { pointerId: event.pointerId, groupId: group.id, candidate: representative };
+        setGesture(gesture);
+        setExpanded(group.id);
+    };
+    const updateTouchGesture = (event, group) => {
+        const gesture = gestureRef.current;
+        if (!gesture || gesture.pointerId !== event.pointerId || gesture.groupId !== group.id)
+            return;
+        event.preventDefault();
+        const candidate = toolUnderPointer(group, event.clientX, event.clientY);
+        if (candidate && candidate !== gesture.candidate)
+            setGesture({ ...gesture, candidate });
+    };
+    const finishTouchGesture = (event, group, cancelled = false) => {
+        const gesture = gestureRef.current;
+        if (!gesture || gesture.pointerId !== event.pointerId || gesture.groupId !== group.id)
+            return;
+        event.preventDefault();
+        try {
+            if (event.currentTarget.hasPointerCapture(event.pointerId))
+                event.currentTarget.releasePointerCapture(event.pointerId);
+        }
+        catch {
+            // 既にcaptureが解除されている場合は何もしない。
+        }
+        const candidate = toolUnderPointer(group, event.clientX, event.clientY) ?? gesture.candidate;
+        setGesture(null);
+        setExpanded(null);
+        // pointerup後に生成される互換clickで代表ツールへ戻らないよう抑止する。
+        suppressClickRef.current = true;
+        if (suppressTimer.current !== null)
+            window.clearTimeout(suppressTimer.current);
+        suppressTimer.current = window.setTimeout(() => {
+            suppressClickRef.current = false;
+        }, 360);
+        if (!cancelled)
+            selectFromGroup(group, candidate);
+    };
     return (React.createElement("aside", { className: `toolbar toolbar-${side}`, "aria-label": "\u4F5C\u56F3\u30C4\u30FC\u30EB" },
         groups.map((group) => {
             const representativeCandidate = representatives[group.id] ?? group.fallback;
             const representative = group.members.includes(representativeCandidate) ? representativeCandidate : group.members[0];
             const isActive = group.members.includes(activeTool);
-            return (React.createElement("div", { className: "tool-group", key: group.id, onPointerEnter: () => openGroup(group.id), onPointerLeave: scheduleClose, onFocus: () => openGroup(group.id), onBlur: (event) => {
+            const isGestureGroup = touchGesture?.groupId === group.id;
+            return (React.createElement("div", { className: `tool-group ${isGestureGroup ? 'is-touch-gesture' : ''}`, key: group.id, onPointerEnter: (event) => {
+                    if (event.pointerType === 'mouse')
+                        openGroup(group.id);
+                }, onPointerLeave: (event) => {
+                    if (event.pointerType === 'mouse')
+                        scheduleClose();
+                }, onFocus: () => openGroup(group.id), onBlur: (event) => {
                     if (!event.currentTarget.contains(event.relatedTarget))
                         scheduleClose();
                 } },
-                React.createElement("button", { className: `tool-button tool-group-main ${isActive ? 'is-active' : ''}`, type: "button", title: defaults_1.TOOL_LABELS[representative], "aria-label": defaults_1.TOOL_LABELS[representative], "aria-expanded": expanded === group.id, onClick: () => onChange(representative) },
+                React.createElement("button", { className: `tool-button tool-group-main ${isActive ? 'is-active' : ''} ${isGestureGroup ? 'is-pressed' : ''}`, type: "button", title: defaults_1.TOOL_LABELS[representative], "aria-label": `${defaults_1.TOOL_LABELS[representative]}。タッチでは押したまま移動してグループ内のツールを選択できます`, "aria-expanded": expanded === group.id, onPointerDown: (event) => beginTouchGesture(event, group, representative), onPointerMove: (event) => updateTouchGesture(event, group), onPointerUp: (event) => finishTouchGesture(event, group), onPointerCancel: (event) => finishTouchGesture(event, group, true), onClick: (event) => {
+                        if (suppressClickRef.current) {
+                            event.preventDefault();
+                            return;
+                        }
+                        onChange(representative);
+                    } },
                     React.createElement(Icon_1.Icon, { name: representative }),
                     React.createElement("span", { className: "group-caret" }, "\u2039")),
-                React.createElement("div", { className: `tool-flyout flyout-${side} ${expanded === group.id ? 'is-open' : ''}`, role: "menu", "aria-hidden": expanded !== group.id }, group.members.map((tool) => (React.createElement("button", { key: tool, type: "button", role: "menuitem", tabIndex: expanded === group.id ? 0 : -1, className: `tool-flyout-button ${activeTool === tool ? 'is-active' : ''}`, title: defaults_1.TOOL_LABELS[tool], "aria-label": defaults_1.TOOL_LABELS[tool], onClick: () => selectFromGroup(group, tool) },
-                    React.createElement(Icon_1.Icon, { name: tool }),
-                    React.createElement("span", null, defaults_1.TOOL_LABELS[tool])))))));
+                React.createElement("div", { className: `tool-flyout flyout-${side} ${expanded === group.id ? 'is-open' : ''} ${isGestureGroup ? 'is-gesture-open' : ''}`, role: "menu", "aria-hidden": expanded !== group.id }, group.members.map((tool) => {
+                    const isDragTarget = isGestureGroup && touchGesture?.candidate === tool;
+                    return (React.createElement("button", { key: tool, type: "button", role: "menuitem", tabIndex: expanded === group.id ? 0 : -1, "data-toolbar-group": group.id, "data-tool": tool, className: `tool-flyout-button ${activeTool === tool ? 'is-active' : ''} ${isDragTarget ? 'is-drag-target' : ''}`, title: defaults_1.TOOL_LABELS[tool], "aria-label": defaults_1.TOOL_LABELS[tool], onClick: () => selectFromGroup(group, tool) },
+                        React.createElement(Icon_1.Icon, { name: tool }),
+                        React.createElement("span", null, defaults_1.TOOL_LABELS[tool])));
+                }))));
         }),
         singles.map((tool) => {
             const disabled = tool === 'function';
@@ -3838,7 +4071,7 @@ exports.TOOL_LABELS = exports.BASIC_TOOLS = exports.ALL_TOOLS = exports.APP_VERS
 exports.createInitialProject = createInitialProject;
 exports.createDefaultSettings = createDefaultSettings;
 const geometry_1 = require("./lib/geometry");
-exports.APP_VERSION = '0.2.0-alpha.6';
+exports.APP_VERSION = '0.2.0-alpha.7';
 exports.ALL_TOOLS = [
     'select', 'pan', 'zoom', 'pen', 'line', 'arrow', 'rectangle', 'ellipse', 'polygon',
     'text', 'math', 'array', 'ball', 'person', 'bundle', 'segment', 'function',
