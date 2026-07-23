@@ -1,4 +1,4 @@
-# Graphanta v0.2.0-alpha.4
+# Graphanta v0.2.0-alpha.5
 
 数学的な思考と表現を支援する、ローカルファーストの作図アプリです。
 
@@ -9,7 +9,7 @@ npm ci
 npm run dev
 ```
 
-`index.html`はViteのソース入口であり、GitHubリポジトリに含めます。
+`app.html`はViteの開発用入口です。リポジトリ直下の`index.html`は、ビルド済みの単体起動版です。
 
 ## 公開用ファイルの生成
 
@@ -17,12 +17,22 @@ npm run dev
 npm run build
 ```
 
-生成物はGit管理対象外です。
+ビルド時に、Viteの生成物からCSSとJavaScriptを埋め込んだ単体版を作成します。
 
-- GitHub Pages公開用: `dist/`
-- ブラウザで直接開ける単一HTML版: `Graphanta.html`
+- リポジトリ直下の公開・ローカル起動用: `index.html`
+- 検証用生成物: `dist/index.html`
 
-GitHub Actionsの`Deploy Graphanta to GitHub Pages`ワークフローは、`main`ブランチへの更新時に`dist/`を生成し、`dist/index.html`を公開入口として配信します。
+GitHub Pagesは **Deploy from a branch / main / /(root)** を選択してください。Actionsワークフローは使用しません。`index.html`は通信なしで直接開けます。
+
+## v0.2.0-alpha.5の主な変更
+
+- GitHub Pagesの「Deploy from a branch / main / /(root)」に対応
+- リポジトリ直下の`index.html`を、CSS・JavaScript内包の単体起動版へ変更
+- 開発用HTMLを`app.html`へ分離
+- `build-standalone.mjs`の資産パス解決を、生成HTML基準へ修正
+- `dist/graphanta/assets`のような誤った二重参照を防止
+- alpha.4までの作図・グループ・スクリーンショット機能を維持
+- Actions用`deploy.yml`を廃止し、ブランチ公開へ統一
 
 ## v0.2.0-alpha.4の主な変更
 
