@@ -675,7 +675,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .subtle-check input { accent-color: var(--primary); }
 
 /* alpha.2 infinite viewport, contextual tools, array symbols and screenshot modes */
-.cursor-ball, .cursor-person { cursor: crosshair; }
+.cursor-ball, .cursor-person, .cursor-bundle { cursor: crosshair; }
 .plot-viewport { position: relative; }
 .plot-context-tools {
   position: fixed;
@@ -710,8 +710,8 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 @keyframes context-tools-in { from { opacity: 0; transform: translate(-6px,-50%) scale(.92); } to { opacity: 1; transform: translate(-6px,-50%) scale(1); } }
 
 .screenshot-menu-wrap { position: relative; display: flex; align-items: stretch; }
-.menu-actions .screenshot-menu-wrap > button:first-child { border-radius: 9px 4px 4px 9px; }
-.menu-actions .screenshot-menu-toggle { min-width: 24px; padding: 0 5px; border-radius: 4px 9px 9px 4px; }
+.menu-actions .screenshot-menu-wrap > button { border-radius: 9px; }
+.menu-actions .screenshot-menu-wrap > button > span { display: inline-flex; align-items: center; }
 .menu-actions .screenshot-menu-wrap > button.is-capturing { color: #fff; background: linear-gradient(145deg,#5749e2,#6b57ef); }
 .shot-next-number { display: grid; place-items: center; min-width: 20px; height: 20px; border-radius: 6px; color: #5749e2; background: #fff; font-size: 12px; font-weight: 900; }
 .screenshot-dropdown {
@@ -736,3 +736,9 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .rotation-handle { cursor: grab; filter: drop-shadow(0 2px 3px rgba(48,40,140,.22)); }
 .rotation-handle:hover { fill: #ece9ff; stroke-width: 2.3; }
 .rotation-handle:active { cursor: grabbing; }
+
+/* alpha.4 single-symbol sizing and bundle controls */
+.bundle-value-control { display: grid; grid-template-columns: minmax(90px, 1fr) 74px; gap: 3px 8px; align-items: center; width: 100%; }
+.bundle-value-control > input[type="range"] { grid-column: 1; grid-row: 1; width: 100%; accent-color: var(--primary); }
+.bundle-value-control > input[type="text"] { grid-column: 2; grid-row: 1 / span 2; width: 100%; }
+.bundle-value-stops { grid-column: 1; display: flex; justify-content: space-between; color: #7a8193; font-size: 9px; font-weight: 700; line-height: 1; }

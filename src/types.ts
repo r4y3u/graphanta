@@ -13,6 +13,7 @@ export type ToolId =
   | 'array'
   | 'ball'
   | 'person'
+  | 'bundle'
   | 'segment'
   | 'function';
 
@@ -120,8 +121,10 @@ export interface ArrayObject extends BaseObject {
   height: number;
   rowsExpr: string;
   colsExpr: string;
-  symbol: 'circle' | 'square' | 'dot' | 'cross' | 'ball' | 'person';
+  symbol: 'circle' | 'square' | 'dot' | 'cross' | 'ball' | 'person' | 'bundle';
   symbolSize: number;
+  /** Number displayed inside a single 'bundle' symbol. */
+  bundleValue?: number;
   rotation?: number;
 }
 

@@ -21,7 +21,7 @@ const GROUPS: ToolGroup[] = [
   { id: 'linework', members: ['line', 'arrow', 'pen'], fallback: 'line' },
   { id: 'shapes', members: ['rectangle', 'ellipse', 'polygon'], fallback: 'rectangle' },
   { id: 'writing', members: ['text', 'math'], fallback: 'text' },
-  { id: 'arrays', members: ['array', 'ball', 'person'], fallback: 'array' },
+  { id: 'arrays', members: ['array', 'ball', 'person', 'bundle'], fallback: 'array' },
 ];
 
 const GROUP_MEMBER_SET = new Set(GROUPS.flatMap((group) => group.members));

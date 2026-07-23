@@ -64,13 +64,14 @@ interface ToolPresets {
   line: StylePreset & { start: ExpressionPoint; end: ExpressionPoint };
   arrow: StylePreset & { start: ExpressionPoint; end: ExpressionPoint; arrowSize: number };
   rectangle: StylePreset & { radius: number };
-  ellipse: StylePreset & { center: ExpressionPoint; majorRadiusExpr: string; minorRadiusExpr: string; eccentricityExpr: string; majorAxis: 'x' | 'y' };
+  ellipse: StylePreset & { center: ExpressionPoint; horizontalRadiusExpr: string; verticalRadiusExpr: string };
   polygon: StylePreset;
   text: StylePreset & { fontSize: number };
   math: StylePreset & { fontSize: number };
   array: StylePreset & { rowsExpr: string; colsExpr: string; symbol: ArrayObject['symbol']; symbolSize: number };
   ball: StylePreset & { symbolSize: number };
   person: StylePreset & { symbolSize: number };
+  bundle: StylePreset & { symbolSize: number; bundleValue: number };
   segment: StylePreset & {
     mode: MeasureMode;
     tickIntervalExpr: string;
@@ -117,7 +118,7 @@ const TOOL_CONTEXT_GROUPS: ToolId[][] = [
   ['line', 'arrow', 'pen'],
   ['rectangle', 'ellipse', 'polygon'],
   ['text', 'math'],
-  ['array', 'ball', 'person'],
+  ['array', 'ball', 'person', 'bundle'],
 ];
 
 function groupForTool(tool: ToolId): ToolId[] | null {
@@ -145,6 +146,17 @@ const DEG_TO_RAD = Math.PI / 180;
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
+}
+
+function readableTextColor(background: string): string {
+  const match = /^#([0-9a-f]{6})$/i.exec(background);
+  if (!match) return '#172033';
+  const value = Number.parseInt(match[1], 16);
+  const red = (value >> 16) & 255;
+  const green = (value >> 8) & 255;
+  const blue = value & 255;
+  const luminance = (0.2126 * red + 0.7152 * green + 0.0722 * blue) / 255;
+  return luminance > 0.58 ? '#172033' : '#ffffff';
 }
 
 function roundValue(value: number, digits = 4): number {
@@ -199,13 +211,14 @@ function createPresets(settings: GraphantaSettings): ToolPresets {
     line: { ...lineStyle, start: { x: '-4', y: '0' }, end: { x: '4', y: '0' } },
     arrow: { ...lineStyle, start: { x: '-4', y: '0' }, end: { x: '4', y: '0' }, arrowSize: 14 },
     rectangle: { ...shapeStyle, radius: 0 },
-    ellipse: { ...shapeStyle, center: { x: '0', y: '0' }, majorRadiusExpr: '2', minorRadiusExpr: '2', eccentricityExpr: '0', majorAxis: 'x' },
+    ellipse: { ...shapeStyle, center: { x: '0', y: '0' }, horizontalRadiusExpr: '2', verticalRadiusExpr: '2' },
     polygon: { ...shapeStyle },
     text: { ...lineStyle, fontSize: 28 },
     math: { ...lineStyle, fontSize: 30 },
     array: { ...lineStyle, rowsExpr: '3', colsExpr: '4', symbol: 'circle', symbolSize: 9 },
     ball: { ...lineStyle, symbolSize: 20 },
     person: { ...lineStyle, symbolSize: 24 },
+    bundle: { ...shapeStyle, stroke: '#4f46e5', fill: '#6d5dfc', symbolSize: 24, bundleValue: 1 },
     segment: {
       ...lineStyle,
       mode: 'numberLine',
@@ -227,6 +240,7 @@ function normalizeSettings(value: GraphantaSettings | null): GraphantaSettings {
     const arrayIndex = visibleTools.indexOf('array');
     if (!visibleTools.includes('ball')) visibleTools.splice(arrayIndex + 1, 0, 'ball');
     if (!visibleTools.includes('person')) visibleTools.splice(visibleTools.indexOf('ball') + 1, 0, 'person');
+    if (!visibleTools.includes('bundle')) visibleTools.splice(visibleTools.indexOf('person') + 1, 0, 'bundle');
   }
   return { ...base, ...value, visibleTools };
 }
@@ -234,6 +248,22 @@ function normalizeSettings(value: GraphantaSettings | null): GraphantaSettings {
 function normalizeObject(object: GraphicObject): GraphicObject {
   if (object.type === 'arrow') return { ...object, arrowSize: object.arrowSize ?? 14, bindings: object.bindings ?? {} };
   if (object.type === 'rectangle' || object.type === 'array' || object.type === 'pen' || object.type === 'polygon') {
+    if (object.type === 'array' && ((object.rowsExpr === '1' && object.colsExpr === '1' && (object.symbol === 'ball' || object.symbol === 'person')) || object.symbol === 'bundle')) {
+      const size = Math.max(3, object.symbolSize || object.height / 2 || 3);
+      const center = { x: object.x + object.width / 2, y: object.y + object.height / 2 };
+      const halfWidth = object.symbol === 'bundle' ? size * Math.SQRT2 : size;
+      return {
+        ...object,
+        x: center.x - halfWidth,
+        y: center.y - size,
+        width: halfWidth * 2,
+        height: size * 2,
+        symbolSize: size,
+        ...(object.symbol === 'bundle' ? { bundleValue: object.bundleValue ?? 1 } : {}),
+        rotation: object.rotation ?? 0,
+        bindings: object.bindings ?? {},
+      };
+    }
     return { ...object, rotation: object.rotation ?? 0, bindings: object.bindings ?? {} };
   }
   if (object.type === 'ellipse') {
@@ -470,6 +500,7 @@ function toolForObject(object: GraphicObject): ToolId {
   if (object.type === 'segment') return 'segment';
   if (object.type === 'array' && object.symbol === 'ball') return 'ball';
   if (object.type === 'array' && object.symbol === 'person') return 'person';
+  if (object.type === 'array' && object.symbol === 'bundle') return 'bundle';
   return object.type;
 }
 
@@ -552,22 +583,34 @@ function resolveGeometryObject(
       x: geometryBindingNumber(object, 'centerX', centerFallback.x, variables),
       y: geometryBindingNumber(object, 'centerY', centerFallback.y, variables),
     });
-    const axis = object.majorAxis ?? (object.rx >= object.ry ? 'x' : 'y');
-    const majorFallback = (axis === 'x' ? object.rx : object.ry) / coordinateUnitPx;
-    const minorFallback = (axis === 'x' ? object.ry : object.rx) / coordinateUnitPx;
-    const major = Math.max(0.001, Math.abs(geometryBindingNumber(object, 'majorRadius', majorFallback, variables)));
-    let minor = Math.max(0.001, Math.abs(geometryBindingNumber(object, 'minorRadius', minorFallback, variables)));
-    if (object.bindings?.eccentricity !== undefined) {
-      const eccentricity = clamp(Math.abs(geometryBindingNumber(object, 'eccentricity', 0, variables)), 0, 0.999999);
-      minor = major * Math.sqrt(1 - eccentricity * eccentricity);
+    const horizontalFallback = object.rx / coordinateUnitPx;
+    const verticalFallback = object.ry / coordinateUnitPx;
+    let horizontal = Math.max(0.001, Math.abs(geometryBindingNumber(object, 'radiusX', horizontalFallback, variables)));
+    let vertical = Math.max(0.001, Math.abs(geometryBindingNumber(object, 'radiusY', verticalFallback, variables)));
+
+    // v0.2.0-alpha.3 and earlier used long/short radii plus a major-axis flag.
+    // Resolve those bindings when new horizontal/vertical bindings are absent.
+    if (object.bindings?.radiusX === undefined && object.bindings?.radiusY === undefined
+      && (object.bindings?.majorRadius !== undefined || object.bindings?.minorRadius !== undefined || object.bindings?.eccentricity !== undefined)) {
+      const axis = object.majorAxis ?? (object.rx >= object.ry ? 'x' : 'y');
+      const majorFallback = (axis === 'x' ? object.rx : object.ry) / coordinateUnitPx;
+      const minorFallback = (axis === 'x' ? object.ry : object.rx) / coordinateUnitPx;
+      const major = Math.max(0.001, Math.abs(geometryBindingNumber(object, 'majorRadius', majorFallback, variables)));
+      let minor = Math.max(0.001, Math.abs(geometryBindingNumber(object, 'minorRadius', minorFallback, variables)));
+      if (object.bindings?.eccentricity !== undefined) {
+        const eccentricity = clamp(Math.abs(geometryBindingNumber(object, 'eccentricity', 0, variables)), 0, 0.999999);
+        minor = major * Math.sqrt(1 - eccentricity * eccentricity);
+      }
+      horizontal = axis === 'x' ? major : minor;
+      vertical = axis === 'y' ? major : minor;
     }
     return {
       ...object,
       cx: center.x,
       cy: center.y,
-      rx: (axis === 'x' ? major : minor) * coordinateUnitPx,
-      ry: (axis === 'y' ? major : minor) * coordinateUnitPx,
-      majorAxis: axis,
+      rx: horizontal * coordinateUnitPx,
+      ry: vertical * coordinateUnitPx,
+      majorAxis: horizontal >= vertical ? 'x' : 'y',
       rotation: -rotationDegrees(object.rotation ?? 0) * DEG_TO_RAD,
     };
   }
@@ -616,7 +659,8 @@ function resizeGraphicObject(
   const localPointer = rotatePoint(point, anchorWorld, -rotation);
   let dx = localPointer.x - anchorWorld.x;
   let dy = localPointer.y - anchorWorld.y;
-  const naturalPreserve = object.type === 'pen' || object.type === 'polygon' || object.type === 'text' || object.type === 'math';
+  const naturalPreserve = object.type === 'pen' || object.type === 'polygon' || object.type === 'text' || object.type === 'math'
+    || (object.type === 'array' && (object.symbol === 'ball' || object.symbol === 'person' || object.symbol === 'bundle'));
   const preserveRatio = forcePreserveRatio || (naturalPreserve && !releasePreserveRatio);
   if (preserveRatio) {
     const originalWidth = Math.max(1, bounds.width);
@@ -646,7 +690,19 @@ function resizeGraphicObject(
     y: centerWorld.y + (source.y - oldCenter.y) * sy,
   });
 
-  if (object.type === 'rectangle' || object.type === 'array') {
+  if (object.type === 'rectangle') {
+    return clearGeometryBindings({ ...object, x: next.x, y: next.y, width, height });
+  }
+  if (object.type === 'array') {
+    if (object.symbol === 'ball' || object.symbol === 'person') {
+      const size = Math.max(3, Math.min(width, height) / 2);
+      return clearGeometryBindings({ ...object, x: centerWorld.x - size, y: centerWorld.y - size, width: size * 2, height: size * 2, symbolSize: size });
+    }
+    if (object.symbol === 'bundle') {
+      const size = Math.max(3, height / 2);
+      const halfWidth = size * Math.SQRT2;
+      return clearGeometryBindings({ ...object, x: centerWorld.x - halfWidth, y: centerWorld.y - size, width: halfWidth * 2, height: size * 2, symbolSize: size });
+    }
     return clearGeometryBindings({ ...object, x: next.x, y: next.y, width, height });
   }
   if (object.type === 'ellipse') {
@@ -908,6 +964,29 @@ function App() {
   useEffect(() => saveSettingsLocal(settings), [settings]);
 
   useEffect(() => {
+    const blockBrowserContextMenu = (event: MouseEvent) => {
+      const target = event.target as Element | null;
+      if (target?.closest('.app-shell')) event.preventDefault();
+    };
+    document.addEventListener('contextmenu', blockBrowserContextMenu, true);
+    return () => document.removeEventListener('contextmenu', blockBrowserContextMenu, true);
+  }, []);
+
+  useEffect(() => {
+    if (!selectedObject || selectedObject.type !== 'array') return;
+    if (selectedObject.symbol === 'ball' || selectedObject.symbol === 'person') {
+      const tool = selectedObject.symbol;
+      setPresets((current) => current[tool].symbolSize === selectedObject.symbolSize
+        ? current
+        : { ...current, [tool]: { ...current[tool], symbolSize: selectedObject.symbolSize } });
+    } else if (selectedObject.symbol === 'bundle') {
+      setPresets((current) => current.bundle.symbolSize === selectedObject.symbolSize
+        ? current
+        : { ...current, bundle: { ...current.bundle, symbolSize: selectedObject.symbolSize } });
+    }
+  }, [selectedObject]);
+
+  useEffect(() => {
     if (restored || !settings.autoRestore) return;
     setRestored(true);
     loadAutosave().then((saved) => {
@@ -1071,6 +1150,7 @@ function App() {
       : tool === 'array' ? presets.array
       : tool === 'ball' ? presets.ball
       : tool === 'person' ? presets.person
+      : tool === 'bundle' ? presets.bundle
       : tool === 'segment' ? presets.segment
       : { stroke: settings.defaultStroke, fill: settings.defaultFill, strokeWidth: settings.defaultStrokeWidth, opacity: 1 };
     return { stroke: source.stroke, fill: source.fill, strokeWidth: source.strokeWidth, opacity: source.opacity };
@@ -1101,6 +1181,14 @@ function App() {
         return {
           id: createId(tool), type: 'array', x: point.x - size, y: point.y - size, width: size * 2, height: size * 2,
           rowsExpr: '1', colsExpr: '1', symbol: tool, symbolSize: size, rotation: 0, ...style,
+        };
+      }
+      case 'bundle': {
+        const size = presets.bundle.symbolSize;
+        const halfWidth = size * Math.SQRT2;
+        return {
+          id: createId('bundle'), type: 'array', x: point.x - halfWidth, y: point.y - size, width: halfWidth * 2, height: size * 2,
+          rowsExpr: '1', colsExpr: '1', symbol: 'bundle', symbolSize: size, bundleValue: presets.bundle.bundleValue, rotation: 0, ...style,
         };
       }
       case 'segment':
@@ -1486,13 +1574,17 @@ function App() {
         case 'ellipse':
           return { ...object, cx: interaction.start.x, cy: interaction.start.y, rx: Math.abs(point.x - interaction.start.x), ry: Math.abs(point.y - interaction.start.y), majorAxis: Math.abs(point.x - interaction.start.x) >= Math.abs(point.y - interaction.start.y) ? 'x' : 'y' };
         case 'array': {
-          if ((object.symbol === 'ball' || object.symbol === 'person') && interaction.tool !== 'array') {
+          if ((object.symbol === 'ball' || object.symbol === 'person' || object.symbol === 'bundle') && interaction.tool !== 'array') {
             const dx = point.x - interaction.start.x;
             const dy = point.y - interaction.start.y;
             if (Math.hypot(dx, dy) < 4 / Math.max(view.zoom, 0.25)) return object;
-            const rect = normalizeRect(interaction.start, point);
-            const size = Math.max(3, Math.min(rect.width, rect.height) / 2);
-            return { ...object, ...rect, symbolSize: size };
+            if (object.symbol === 'bundle') {
+              const size = Math.max(3, Math.abs(dy), Math.abs(dx) / Math.SQRT2);
+              const halfWidth = size * Math.SQRT2;
+              return { ...object, x: interaction.start.x - halfWidth, y: interaction.start.y - size, width: halfWidth * 2, height: size * 2, symbolSize: size };
+            }
+            const size = Math.max(3, Math.abs(dx), Math.abs(dy));
+            return { ...object, x: interaction.start.x - size, y: interaction.start.y - size, width: size * 2, height: size * 2, symbolSize: size };
           }
           const rect = normalizeRect(interaction.start, point);
           return { ...object, ...rect };
@@ -1597,10 +1689,9 @@ function App() {
       if (source) {
         const object = resolveObject(source);
         const bounds = getObjectBounds(object);
-        const isSingleSymbol = object.type === 'array' && (object.symbol === 'ball' || object.symbol === 'person');
-        if (isSingleSymbol) {
-          const tool: 'ball' | 'person' = object.symbol === 'ball' ? 'ball' : 'person';
-          const nextSize = Math.max(3, Math.min(object.width, object.height) / 2);
+        if (object.type === 'array' && (object.symbol === 'ball' || object.symbol === 'person' || object.symbol === 'bundle')) {
+          const tool = object.symbol;
+          const nextSize = Math.max(3, object.height / 2);
           setPresets((current) => ({ ...current, [tool]: { ...current[tool], symbolSize: nextSize } }));
         } else if (bounds.width < MIN_DRAW_SIZE && bounds.height < MIN_DRAW_SIZE && object.type !== 'pen') {
           setProject((current) => ({ ...current, objects: current.objects.filter((item) => item.id !== object.id) }));
@@ -1682,26 +1773,19 @@ function App() {
         y: resolveNumber(preset.center.y, project.variables, 0),
       };
       const center = coordinateToWorld(centerCoordinate);
-      const major = Math.max(0.05, Math.abs(resolveNumber(preset.majorRadiusExpr, project.variables, 2)));
-      let minor = Math.max(0.05, Math.abs(resolveNumber(preset.minorRadiusExpr, project.variables, 2)));
-      const eccentricity = clamp(Math.abs(resolveNumber(preset.eccentricityExpr, project.variables, 0)), 0, 0.999999);
-      if (eccentricity > 0) minor = major * Math.sqrt(1 - eccentricity * eccentricity);
-      const bindings: Record<string, string> = {
-        centerX: preset.center.x,
-        centerY: preset.center.y,
-        majorRadius: preset.majorRadiusExpr,
-        minorRadius: preset.minorRadiusExpr,
-      };
-      const eccentricitySource = preset.eccentricityExpr.trim();
-      if (eccentricitySource && !/^[-+]?0+(?:\.0+)?$/.test(eccentricitySource)) {
-        bindings.eccentricity = eccentricitySource;
-      }
+      const horizontal = Math.max(0.05, Math.abs(resolveNumber(preset.horizontalRadiusExpr, project.variables, 2)));
+      const vertical = Math.max(0.05, Math.abs(resolveNumber(preset.verticalRadiusExpr, project.variables, 2)));
       object = {
         id: createId('ellipse'), type: 'ellipse', cx: center.x, cy: center.y,
-        rx: (preset.majorAxis === 'x' ? major : minor) * coordinateUnitPx,
-        ry: (preset.majorAxis === 'y' ? major : minor) * coordinateUnitPx,
-        majorAxis: preset.majorAxis,
-        bindings,
+        rx: horizontal * coordinateUnitPx,
+        ry: vertical * coordinateUnitPx,
+        majorAxis: horizontal >= vertical ? 'x' : 'y',
+        bindings: {
+          centerX: preset.center.x,
+          centerY: preset.center.y,
+          radiusX: preset.horizontalRadiusExpr,
+          radiusY: preset.verticalRadiusExpr,
+        },
         rotation: 0, stroke: preset.stroke, fill: preset.fill, strokeWidth: preset.strokeWidth, opacity: preset.opacity,
       } as EllipseObject;
     }
@@ -1711,13 +1795,24 @@ function App() {
   }
 
   function renderArray(object: ArrayObject) {
+    if (object.symbol === 'bundle') {
+      const fill = object.fill === 'transparent' ? object.stroke : object.fill;
+      const fontSize = Math.max(12, Math.min(object.height * 0.48, object.width * 0.34));
+      return [
+        <g key="bundle">
+          <rect x={object.x} y={object.y} width={object.width} height={object.height} rx={Math.min(10, object.height * 0.08)} fill={fill} stroke="rgba(23,32,51,.46)" strokeWidth={Math.max(1, object.strokeWidth)} vectorEffect="non-scaling-stroke" />
+          <text x={object.x + object.width / 2} y={object.y + object.height / 2} textAnchor="middle" dominantBaseline="central" fontSize={fontSize} fontWeight={760} fontFamily="system-ui, sans-serif" fill={readableTextColor(fill)} stroke="none">{object.bundleValue ?? 1}</text>
+        </g>,
+      ];
+    }
     const rows = clamp(Math.round(resolveNumber(object.rowsExpr, project.variables, 3)), 1, 50);
     const cols = clamp(Math.round(resolveNumber(object.colsExpr, project.variables, 4)), 1, 50);
     const cellWidth = object.width / cols;
     const cellHeight = object.height / rows;
-    const symbolRatio = object.symbol === 'ball' || object.symbol === 'person' ? 0.48 : 0.36;
+    const singleSymbol = rows === 1 && cols === 1 && (object.symbol === 'ball' || object.symbol === 'person');
+    const symbolRatio = singleSymbol ? 0.5 : (object.symbol === 'ball' || object.symbol === 'person' ? 0.46 : 0.36);
     const symbolSize = Math.max(1, Math.min(object.symbolSize, Math.abs(cellWidth) * symbolRatio, Math.abs(cellHeight) * symbolRatio));
-    const symbols = [];
+    const symbols: React.ReactNode[] = [];
     for (let row = 0; row < rows; row += 1) {
       for (let col = 0; col < cols; col += 1) {
         const cx = object.x + cellWidth * (col + 0.5);
@@ -1727,10 +1822,10 @@ function App() {
         if (object.symbol === 'circle') symbols.push(<circle key={key} cx={cx} cy={cy} r={symbolSize} fill={fill} stroke="none" />);
         else if (object.symbol === 'square') symbols.push(<rect key={key} x={cx - symbolSize} y={cy - symbolSize} width={symbolSize * 2} height={symbolSize * 2} fill={fill} stroke="none" />);
         else if (object.symbol === 'dot') symbols.push(<circle key={key} cx={cx} cy={cy} r={Math.max(2, symbolSize * 0.42)} fill={object.stroke} stroke="none" />);
-        else if (object.symbol === 'ball') symbols.push(<g key={key}><circle cx={cx + symbolSize * 0.08} cy={cy + symbolSize * 0.12} r={symbolSize} fill="#18233b" opacity={0.18} /><circle cx={cx} cy={cy} r={symbolSize} fill={fill} stroke={object.stroke} strokeWidth={Math.max(0.8, object.strokeWidth * 0.55)} /><ellipse cx={cx - symbolSize * 0.3} cy={cy - symbolSize * 0.32} rx={symbolSize * 0.28} ry={symbolSize * 0.2} fill="#ffffff" opacity={0.42} /></g>);
+        else if (object.symbol === 'ball') symbols.push(<g key={key}><circle cx={cx + symbolSize * 0.03} cy={cy + symbolSize * 0.04} r={symbolSize * 0.94} fill="#18233b" opacity={0.16} /><circle cx={cx} cy={cy} r={symbolSize} fill={fill} stroke={object.stroke} strokeWidth={Math.max(0.8, object.strokeWidth * 0.55)} /><ellipse cx={cx - symbolSize * 0.3} cy={cy - symbolSize * 0.33} rx={symbolSize * 0.27} ry={symbolSize * 0.18} fill="#ffffff" opacity={0.45} /></g>);
         else if (object.symbol === 'person') {
-          const scale = symbolSize / 12;
-          symbols.push(<g key={key} transform={`translate(${cx} ${cy}) scale(${scale})`} fill={fill} stroke={object.stroke} strokeWidth={Math.max(0.7, object.strokeWidth / Math.max(scale, 0.01))} strokeLinecap="round" strokeLinejoin="round"><circle cx="0" cy="-7" r="3" /><path d="M-4 -2 C-4 -4 -2.2 -5 0 -5 C2.2 -5 4 -4 4 -2 L4 5 L2.2 5 L2.2 11 L-2.2 11 L-2.2 5 L-4 5 Z" /><path d="M-4 -1 L-8 5 M4 -1 L8 5" fill="none" /></g>);
+          const scale = symbolSize / 11;
+          symbols.push(<g key={key} transform={`translate(${cx} ${cy}) scale(${scale})`} fill="none" stroke={fill} strokeWidth={2.8} strokeLinecap="round" strokeLinejoin="round"><circle cx="0" cy="-8" r="2.5" fill={fill} stroke="none" /><path d="M0 -4.5 L0 3.2 M-6.5 -1.2 L0 -4.1 L6.5 -1.2 M0 3.2 L-4.7 10 M0 3.2 L4.7 10" /></g>);
         } else symbols.push(<path key={key} d={`M ${cx - symbolSize} ${cy - symbolSize} L ${cx + symbolSize} ${cy + symbolSize} M ${cx + symbolSize} ${cy - symbolSize} L ${cx - symbolSize} ${cy + symbolSize}`} fill="none" stroke={object.stroke} strokeWidth={object.strokeWidth} />);
       }
     }
@@ -1746,7 +1841,7 @@ function App() {
     const dy = object.end.y - object.start.y;
     const length = Math.max(1, Math.hypot(dx, dy));
     const normal = { x: -dy / length, y: dx / length };
-    const ticks = [];
+    const ticks: React.ReactNode[] = [];
     const tickCount = tickInterval > 0 ? Math.min(300, Math.floor(maxValue / tickInterval + 1e-9)) : 0;
     for (let index = 0; index <= tickCount; index += 1) {
       const value = index * tickInterval;
@@ -2164,8 +2259,7 @@ function App() {
           <button type="button" aria-label="やり直す" title="やり直す" onClick={redo} disabled={redoStack.current.length === 0} data-history={historyRevision}><Icon name="redo" size={19} /></button>
           <span className="menu-divider" />
           <div className="screenshot-menu-wrap">
-            <button type="button" className={fourShotCaptures.length ? 'is-capturing' : ''} disabled={screenshotBusy} onClick={() => fourShotCaptures.length ? captureFourShot() : setScreenshotMenuOpen((open) => !open)}><Icon name="camera" size={19} />{fourShotCaptures.length ? <span className="shot-next-number">{fourShotCaptures.length + 1}</span> : <span>スクショ</span>}</button>
-            <button type="button" className="screenshot-menu-toggle" aria-label="スクリーンショットメニュー" aria-expanded={screenshotMenuOpen} onClick={() => setScreenshotMenuOpen((open) => !open)}>⌄</button>
+            <button type="button" className={fourShotCaptures.length ? 'is-capturing' : ''} aria-haspopup="menu" aria-expanded={screenshotMenuOpen} disabled={screenshotBusy} onClick={() => fourShotCaptures.length ? captureFourShot() : setScreenshotMenuOpen((open) => !open)}><Icon name="camera" size={19} />{fourShotCaptures.length ? <><span>スクリーンショット</span><span className="shot-next-number">{fourShotCaptures.length + 1}</span></> : <span>スクリーンショット</span>}</button>
             {screenshotMenuOpen && <div className="screenshot-dropdown" role="menu">
               <button type="button" role="menuitem" onClick={screenshotInstant}><Icon name="camera" size={18} /><span><strong>インスタント</strong><small>新規ウィンドウに1枚出力</small></span></button>
               <button type="button" role="menuitem" onClick={captureFourShot}><Icon name="grid" size={18} /><span><strong>4ショット</strong><small>4枚を順に記録して4分割</small></span></button>
@@ -2324,7 +2418,24 @@ function TweakPanel(props: TweakPanelProps) {
   const { project, activeTool, selected, selectedObjects, resolvedSelected, presets, coordinateUnitPx, worldToCoordinate, coordinateToWorld, onPresetChange, onCanvasChange, onObjectChange, onDelete, onDuplicate, onGroup, onUngroup, onAlign, onArrange, onFinalizePolygon, polygonCount, onCreateFromCoordinates } = props;
   const navigationMode = activeTool === 'select' || activeTool === 'pan' || activeTool === 'zoom';
   const showSelected = selectedObjects.length === 1 && Boolean(selected) && activeTool !== 'pan' && activeTool !== 'zoom' && (activeTool === 'select' || (selected ? toolForObject(selected) === activeTool : false));
-  const patchObject = (changes: Partial<GraphicObject>) => onObjectChange((object) => ({ ...object, ...changes } as GraphicObject));
+  const patchObject = (changes: Partial<GraphicObject>) => onObjectChange((object) => {
+    if (object.type === 'array' && 'symbolSize' in changes && typeof changes.symbolSize === 'number'
+      && (object.symbol === 'ball' || object.symbol === 'person' || object.symbol === 'bundle')) {
+      const size = Math.max(3, changes.symbolSize);
+      const center = { x: object.x + object.width / 2, y: object.y + object.height / 2 };
+      const halfWidth = object.symbol === 'bundle' ? size * Math.SQRT2 : size;
+      return clearGeometryBindings({
+        ...object,
+        ...changes,
+        x: center.x - halfWidth,
+        y: center.y - size,
+        width: halfWidth * 2,
+        height: size * 2,
+        symbolSize: size,
+      } as GraphicObject);
+    }
+    return { ...object, ...changes } as GraphicObject;
+  });
 
   if (activeTool === 'select' && selectedObjects.length > 1) {
     const units = selectionUnits(selectedObjects);
@@ -2401,10 +2512,8 @@ function TweakPanel(props: TweakPanelProps) {
         <PresetHeader label="円・だ円" />
         <ShapeStyleEditor value={presets.ellipse} onChange={(patch) => onPresetChange('ellipse', patch)} />
         <ExpressionPointField label="中心" value={presets.ellipse.center} onChange={(center) => onPresetChange('ellipse', { center })} />
-        <Field label="長軸方向"><select value={presets.ellipse.majorAxis} onChange={(event) => onPresetChange('ellipse', { majorAxis: event.target.value as 'x' | 'y' })}><option value="x">横</option><option value="y">縦</option></select></Field>
-        <Field label="長半径"><ExpressionRange value={presets.ellipse.majorRadiusExpr} variables={project.variables} fallback={2} min={0.1} max={50} step={0.1} onChange={(majorRadiusExpr) => onPresetChange('ellipse', { majorRadiusExpr })} /></Field>
-        <Field label="短半径"><ExpressionRange value={presets.ellipse.minorRadiusExpr} variables={project.variables} fallback={2} min={0.1} max={50} step={0.1} onChange={(minorRadiusExpr) => onPresetChange('ellipse', { minorRadiusExpr, eccentricityExpr: '0' })} /></Field>
-        <Field label="離心率"><ExpressionRange value={presets.ellipse.eccentricityExpr} variables={project.variables} fallback={0} min={0} max={0.999} step={0.01} onChange={(eccentricityExpr) => onPresetChange('ellipse', { eccentricityExpr })} /></Field>
+        <Field label="横半径"><ExpressionRange value={presets.ellipse.horizontalRadiusExpr} variables={project.variables} fallback={2} min={0.1} max={50} step={0.1} onChange={(horizontalRadiusExpr) => onPresetChange('ellipse', { horizontalRadiusExpr })} /></Field>
+        <Field label="縦半径"><ExpressionRange value={presets.ellipse.verticalRadiusExpr} variables={project.variables} fallback={2} min={0.1} max={50} step={0.1} onChange={(verticalRadiusExpr) => onPresetChange('ellipse', { verticalRadiusExpr })} /></Field>
         <button type="button" className="primary-button full" onClick={() => onCreateFromCoordinates('ellipse')}>数値から作成</button>
       </>
     );
@@ -2415,7 +2524,11 @@ function TweakPanel(props: TweakPanelProps) {
   if (activeTool === 'array') return <><PresetHeader label="アレー図" /><ArraySymbolStyleEditor value={presets.array} symbolSize={presets.array.symbolSize} onChange={(patch) => onPresetChange('array', patch)} /><ArrayFields value={presets.array} onChange={(patch) => onPresetChange('array', patch)} /></>;
   if (activeTool === 'ball' || activeTool === 'person') {
     const preset = presets[activeTool];
-    return <><PresetHeader label={TOOL_LABELS[activeTool]} /><ArraySymbolStyleEditor value={preset} symbolSize={preset.symbolSize} onChange={(patch) => onPresetChange(activeTool, patch)} /><p className="panel-hint">クリックで1個ずつ配置。ドラッグで大きさを決めると、次の配置にも引き継がれます。</p></>;
+    return <><PresetHeader label={TOOL_LABELS[activeTool]} /><ArraySymbolStyleEditor value={preset} symbolSize={preset.symbolSize} onChange={(patch) => onPresetChange(activeTool, patch)} /><p className="panel-hint">クリックで1個ずつ配置。選択・ドラッグ・大きさ変更の結果は、次の配置に引き継がれます。</p></>;
+  }
+  if (activeTool === 'bundle') {
+    const preset = presets.bundle;
+    return <><PresetHeader label="まとまり" /><ArraySymbolStyleEditor value={preset} symbolSize={preset.symbolSize} onChange={(patch) => onPresetChange('bundle', patch)} /><BundleValueEditor value={preset.bundleValue} onChange={(bundleValue) => onPresetChange('bundle', { bundleValue })} /><p className="panel-hint">縦：横＝1：√2の比率を保って配置します。選択した「まとまり」の大きさは次の配置に引き継がれます。</p></>;
   }
   if (activeTool === 'segment') return <><PresetHeader label="目盛り" /><LineStyleEditor value={presets.segment} onChange={(patch) => onPresetChange('segment', patch)} /><MeasureFields value={presets.segment} onChange={(patch) => onPresetChange('segment', patch)} /></>;
   return null;
@@ -2442,6 +2555,20 @@ function ArraySymbolStyleEditor({ value, symbolSize, onChange }: { value: StyleP
       <Field label="大きさ"><RangeNumber value={symbolSize} min={3} max={80} step={1} onChange={(next) => onChange({ symbolSize: next })} /></Field>
       <Field label="不透明度"><RangeNumber value={value.opacity * 100} min={10} max={100} step={5} suffix="%" onChange={(opacity) => onChange({ opacity: opacity / 100 })} /></Field>
     </>
+  );
+}
+
+function BundleValueEditor({ value, onChange }: { value: number; onChange: (value: number) => void }) {
+  const stops = [1, 10, 100];
+  const nearestIndex = stops.reduce((best, candidate, index) => Math.abs(Math.log10(Math.max(value, 1)) - Math.log10(candidate)) < Math.abs(Math.log10(Math.max(value, 1)) - Math.log10(stops[best])) ? index : best, 0);
+  return (
+    <Field label="数値">
+      <div className="bundle-value-control">
+        <input type="range" min={0} max={2} step={1} value={nearestIndex} aria-label="1、10、100から選択" onChange={(event) => onChange(stops[Number(event.target.value)])} />
+        <div className="bundle-value-stops" aria-hidden="true"><span>1</span><span>10</span><span>100</span></div>
+        <AsciiNumber value={value} min={1} max={1000000} step={1} onChange={(next) => onChange(Math.max(1, next))} />
+      </div>
+    </Field>
   );
 }
 
@@ -2536,7 +2663,8 @@ function SelectedObjectEditor({ object, resolvedObject, variables, coordinateUni
       {object.type === 'ellipse' && resolvedObject.type === 'ellipse' && <BoundEllipseFields object={object} resolvedObject={resolvedObject} variables={variables} coordinateUnitPx={coordinateUnitPx} worldToCoordinate={worldToCoordinate} onBindingChange={setBinding} />}
       {object.type === 'text' && resolvedObject.type === 'text' && <><BoundPositionFields object={object} resolvedObject={resolvedObject} worldToCoordinate={worldToCoordinate} onBindingChange={setBinding} /><Field label="文字"><textarea value={object.text} onChange={(event) => onPatch({ text: event.target.value } as Partial<GraphicObject>)} /></Field><Field label="文字サイズ"><AsciiNumber value={object.fontSize} min={8} max={160} onChange={(fontSize) => onPatch({ fontSize } as Partial<GraphicObject>)} /></Field></>}
       {object.type === 'math' && resolvedObject.type === 'math' && <><BoundPositionFields object={object} resolvedObject={resolvedObject} worldToCoordinate={worldToCoordinate} onBindingChange={setBinding} /><Field label="数式"><AsciiText value={object.expression} onChange={(expression) => onPatch({ expression } as Partial<GraphicObject>)} /></Field><Field label="文字サイズ"><AsciiNumber value={object.fontSize} min={8} max={160} onChange={(fontSize) => onPatch({ fontSize } as Partial<GraphicObject>)} /></Field></>}
-      {object.type === 'array' && resolvedObject.type === 'array' && <><BoundBoxFields object={object} resolvedObject={resolvedObject} coordinateUnitPx={coordinateUnitPx} worldToCoordinate={worldToCoordinate} onBindingChange={setBinding} /><ArrayFields value={object} onChange={(patch) => onPatch(patch as Partial<GraphicObject>)} /></>}
+      {object.type === 'array' && resolvedObject.type === 'array' && object.symbol !== 'ball' && object.symbol !== 'person' && object.symbol !== 'bundle' && <><BoundBoxFields object={object} resolvedObject={resolvedObject} coordinateUnitPx={coordinateUnitPx} worldToCoordinate={worldToCoordinate} onBindingChange={setBinding} /><ArrayFields value={object} onChange={(patch) => onPatch(patch as Partial<GraphicObject>)} /></>}
+      {object.type === 'array' && object.symbol === 'bundle' && <BundleValueEditor value={object.bundleValue ?? 1} onChange={(bundleValue) => onPatch({ bundleValue } as Partial<GraphicObject>)} />}
       {object.type === 'segment' && <MeasureFields value={object} onChange={(patch) => onPatch(patch as Partial<GraphicObject>)} />}
     </>
   );
@@ -2588,11 +2716,10 @@ function BoundEllipseFields({ object, resolvedObject, variables, coordinateUnitP
   onBindingChange: (key: string, value: string, clearKeys?: string[]) => void;
 }) {
   const center = worldToCoordinate({ x: resolvedObject.cx, y: resolvedObject.cy });
-  const axis = object.majorAxis ?? (resolvedObject.rx >= resolvedObject.ry ? 'x' : 'y');
-  const major = (axis === 'x' ? resolvedObject.rx : resolvedObject.ry) / coordinateUnitPx;
-  const minor = (axis === 'x' ? resolvedObject.ry : resolvedObject.rx) / coordinateUnitPx;
-  const eccentricity = major > 0 ? Math.sqrt(Math.max(0, 1 - (minor * minor) / (major * major))) : 0;
-  return <><ExpressionPointField label="中心" value={{ x: bindingExpression(object, 'centerX', center.x), y: bindingExpression(object, 'centerY', center.y) }} onChange={(point) => { onBindingChange('centerX', point.x); onBindingChange('centerY', point.y); }} /><Field label="長半径"><ExpressionRange value={bindingExpression(object, 'majorRadius', major)} variables={variables} fallback={major} min={0.1} max={50} step={0.1} onChange={(value) => onBindingChange('majorRadius', value)} /></Field><Field label="短半径"><ExpressionRange value={bindingExpression(object, 'minorRadius', minor)} variables={variables} fallback={minor} min={0.1} max={50} step={0.1} onChange={(value) => onBindingChange('minorRadius', value, ['eccentricity'])} /></Field><Field label="離心率"><ExpressionRange value={bindingExpression(object, 'eccentricity', eccentricity)} variables={variables} fallback={eccentricity} min={0} max={0.999} step={0.01} onChange={(value) => onBindingChange('eccentricity', value)} /></Field></>;
+  const horizontal = resolvedObject.rx / coordinateUnitPx;
+  const vertical = resolvedObject.ry / coordinateUnitPx;
+  const legacyKeys = ['majorRadius', 'minorRadius', 'eccentricity'];
+  return <><ExpressionPointField label="中心" value={{ x: bindingExpression(object, 'centerX', center.x), y: bindingExpression(object, 'centerY', center.y) }} onChange={(point) => { onBindingChange('centerX', point.x); onBindingChange('centerY', point.y); }} /><Field label="横半径"><ExpressionRange value={bindingExpression(object, 'radiusX', horizontal)} variables={variables} fallback={horizontal} min={0.1} max={50} step={0.1} onChange={(value) => onBindingChange('radiusX', value, legacyKeys)} /></Field><Field label="縦半径"><ExpressionRange value={bindingExpression(object, 'radiusY', vertical)} variables={variables} fallback={vertical} min={0.1} max={50} step={0.1} onChange={(value) => onBindingChange('radiusY', value, legacyKeys)} /></Field></>;
 }
 
 function ArrayFields({ value, onChange }: { value: Pick<ArrayObject, 'rowsExpr' | 'colsExpr' | 'symbol'>; onChange: (patch: Partial<ArrayObject>) => void }) {

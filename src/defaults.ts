@@ -1,16 +1,16 @@
 import { createId } from './lib/geometry';
 import type { GraphantaProject, GraphantaSettings, ToolId } from './types';
 
-export const APP_VERSION = '0.2.0-alpha.3';
+export const APP_VERSION = '0.2.0-alpha.4';
 
 export const ALL_TOOLS: ToolId[] = [
   'select', 'pan', 'zoom', 'pen', 'line', 'arrow', 'rectangle', 'ellipse', 'polygon',
-  'text', 'math', 'array', 'ball', 'person', 'segment', 'function',
+  'text', 'math', 'array', 'ball', 'person', 'bundle', 'segment', 'function',
 ];
 
 export const BASIC_TOOLS: ToolId[] = [
   'select', 'pan', 'zoom', 'pen', 'line', 'arrow', 'rectangle', 'ellipse',
-  'text', 'math', 'array', 'ball', 'person', 'segment', 'function',
+  'text', 'math', 'array', 'ball', 'person', 'bundle', 'segment', 'function',
 ];
 
 export const TOOL_LABELS: Record<ToolId, string> = {
@@ -28,6 +28,7 @@ export const TOOL_LABELS: Record<ToolId, string> = {
   array: 'アレー図',
   ball: '玉',
   person: '人',
+  bundle: 'まとまり',
   segment: '目盛り',
   function: '関数グラフ（v3）',
 };
