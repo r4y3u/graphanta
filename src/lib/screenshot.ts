@@ -128,6 +128,12 @@ export async function composeFourCaptures(captures: PngCapture[]): Promise<PngCa
     const y = Math.floor(index / 2) * cellHeight;
     context.drawImage(image, x, y, cellWidth, cellHeight);
   }
+  const dividerWidth = Math.max(2, Math.round(Math.min(cellWidth, cellHeight) * 0.003));
+  context.save();
+  context.fillStyle = '#626a7d';
+  context.fillRect(cellWidth - dividerWidth / 2, 0, dividerWidth, canvas.height);
+  context.fillRect(0, cellHeight - dividerWidth / 2, canvas.width, dividerWidth);
+  context.restore();
   const dataUrl = canvas.toDataURL('image/png');
   return { dataUrl, blob: dataUrlToBlob(dataUrl), width: canvas.width, height: canvas.height };
 }

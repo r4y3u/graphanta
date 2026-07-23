@@ -1,7 +1,7 @@
 import { createId } from './lib/geometry';
 import type { GraphantaProject, GraphantaSettings, ToolId } from './types';
 
-export const APP_VERSION = '0.2.0-alpha.5';
+export const APP_VERSION = '0.2.0-alpha.6';
 
 export const ALL_TOOLS: ToolId[] = [
   'select', 'pan', 'zoom', 'pen', 'line', 'arrow', 'rectangle', 'ellipse', 'polygon',
@@ -68,6 +68,7 @@ export function createDefaultSettings(): GraphantaSettings {
     format: 'graphanta-settings',
     schemaVersion: 1,
     toolbarSide: 'right',
+    panelSide: 'right',
     visibleTools: BASIC_TOOLS,
     defaultStroke: '#25314d',
     defaultFill: 'transparent',

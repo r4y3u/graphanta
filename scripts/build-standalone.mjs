@@ -2,7 +2,7 @@ import { access, copyFile, readFile, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-const APP_VERSION = '0.2.0-alpha.5';
+const APP_VERSION = '0.2.0-alpha.6';
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const rootDir = resolve(scriptDir, '..');
 const distDir = resolve(rootDir, 'dist');

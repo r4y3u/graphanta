@@ -974,16 +974,28 @@ function App() {
 
   useEffect(() => {
     if (!selectedObject || selectedObject.type !== 'array') return;
-    if (selectedObject.symbol === 'ball' || selectedObject.symbol === 'person') {
-      const tool = selectedObject.symbol;
-      setPresets((current) => current[tool].symbolSize === selectedObject.symbolSize
-        ? current
-        : { ...current, [tool]: { ...current[tool], symbolSize: selectedObject.symbolSize } });
-    } else if (selectedObject.symbol === 'bundle') {
-      setPresets((current) => current.bundle.symbolSize === selectedObject.symbolSize
-        ? current
-        : { ...current, bundle: { ...current.bundle, symbolSize: selectedObject.symbolSize } });
-    }
+    const tool: 'array' | 'ball' | 'person' | 'bundle' = selectedObject.symbol === 'ball' || selectedObject.symbol === 'person' || selectedObject.symbol === 'bundle'
+      ? selectedObject.symbol
+      : 'array';
+    setPresets((current) => {
+      const preset = current[tool];
+      const next = {
+        ...preset,
+        stroke: selectedObject.stroke,
+        fill: selectedObject.fill,
+        strokeWidth: selectedObject.strokeWidth,
+        opacity: selectedObject.opacity,
+        symbolSize: selectedObject.symbolSize,
+        ...(tool === 'bundle' ? { bundleValue: selectedObject.bundleValue ?? 1 } : {}),
+      };
+      const unchanged = preset.stroke === next.stroke
+        && preset.fill === next.fill
+        && preset.strokeWidth === next.strokeWidth
+        && preset.opacity === next.opacity
+        && preset.symbolSize === next.symbolSize
+        && (tool !== 'bundle' || current.bundle.bundleValue === (selectedObject.bundleValue ?? 1));
+      return unchanged ? current : { ...current, [tool]: next } as ToolPresets;
+    });
   }, [selectedObject]);
 
   useEffect(() => {
@@ -2197,7 +2209,7 @@ function App() {
       } else {
         setStatus('4ショット画像を合成しています');
         const composed = await composeFourCaptures(next);
-        if (previewWindow) showPngInPreview(previewWindow, composed.dataUrl, '左上・右上・左下・右下の順に4枚を配置しています。');
+        if (previewWindow) showPngInPreview(previewWindow, composed.dataUrl, '左上・右上・左下・右下の順に4枚を配置し、中央に分割線を入れています。');
         setFourShotCaptures([]);
         setStatus('4ショットを新しいウィンドウに表示しました');
       }
@@ -2274,7 +2286,7 @@ function App() {
         <button type="button" className="wordmark" onClick={() => setModal({ kind: 'about' })}><strong>Graphanta</strong><span>visual mathematics</span></button>
       </header>
 
-      <main className={`workspace toolbar-${settings.toolbarSide} ${panelCollapsed.tweak && panelCollapsed.expressions ? 'panels-collapsed' : ''}`}>
+      <main className={`workspace toolbar-${settings.toolbarSide} panels-${settings.panelSide} ${panelCollapsed.tweak && panelCollapsed.expressions ? 'panels-collapsed' : ''}`}>
         {settings.toolbarSide === 'left' && <Toolbar tools={visibleTools} activeTool={activeTool} side="left" onChange={chooseTool} />}
         <section className="plot-shell">
           <div className="plot-viewport" ref={plotViewportRef}>
@@ -2505,7 +2517,7 @@ function TweakPanel(props: TweakPanelProps) {
       </>
     );
   }
-  if (activeTool === 'rectangle') return <><PresetHeader label="四角形" /><ShapeStyleEditor value={presets.rectangle} onChange={(patch) => onPresetChange('rectangle', patch)} /><Field label="角の丸み"><AsciiNumber value={presets.rectangle.radius} min={0} max={100} onChange={(value) => onPresetChange('rectangle', { radius: value })} /></Field></>;
+  if (activeTool === 'rectangle') return <><PresetHeader label="四角形" /><ShapeStyleEditor value={presets.rectangle} onChange={(patch) => onPresetChange('rectangle', patch)} /><Field label="角の丸み" labelActions={<StepButtons value={presets.rectangle.radius} min={0} max={100} step={1} onChange={(radius) => onPresetChange('rectangle', { radius })} />}><AsciiNumber value={presets.rectangle.radius} min={0} max={100} onChange={(value) => onPresetChange('rectangle', { radius: value })} /></Field></>;
   if (activeTool === 'ellipse') {
     return (
       <>
@@ -2519,16 +2531,16 @@ function TweakPanel(props: TweakPanelProps) {
     );
   }
   if (activeTool === 'polygon') return <><PresetHeader label="多角形" /><ShapeStyleEditor value={presets.polygon} onChange={(patch) => onPresetChange('polygon', patch)} />{polygonCount > 0 && <button type="button" className="primary-button full" onClick={onFinalizePolygon} disabled={polygonCount < 3}>多角形を確定（{polygonCount}点）</button>}</>;
-  if (activeTool === 'text') return <><PresetHeader label="文字" /><LineStyleEditor value={presets.text} onChange={(patch) => onPresetChange('text', patch)} /><Field label="文字サイズ"><RangeNumber value={presets.text.fontSize} min={8} max={160} step={1} onChange={(fontSize) => onPresetChange('text', { fontSize })} /></Field></>;
-  if (activeTool === 'math') return <><PresetHeader label="数式" /><LineStyleEditor value={presets.math} onChange={(patch) => onPresetChange('math', patch)} /><Field label="文字サイズ"><RangeNumber value={presets.math.fontSize} min={8} max={160} step={1} onChange={(fontSize) => onPresetChange('math', { fontSize })} /></Field></>;
-  if (activeTool === 'array') return <><PresetHeader label="アレー図" /><ArraySymbolStyleEditor value={presets.array} symbolSize={presets.array.symbolSize} onChange={(patch) => onPresetChange('array', patch)} /><ArrayFields value={presets.array} onChange={(patch) => onPresetChange('array', patch)} /></>;
+  if (activeTool === 'text') return <><PresetHeader label="文字" /><LineStyleEditor value={presets.text} onChange={(patch) => onPresetChange('text', patch)} /><Field label="文字サイズ" labelActions={<StepButtons value={presets.text.fontSize} min={8} max={160} step={1} onChange={(fontSize) => onPresetChange('text', { fontSize })} />}><RangeNumber value={presets.text.fontSize} min={8} max={160} step={1} onChange={(fontSize) => onPresetChange('text', { fontSize })} /></Field></>;
+  if (activeTool === 'math') return <><PresetHeader label="数式" /><LineStyleEditor value={presets.math} onChange={(patch) => onPresetChange('math', patch)} /><Field label="文字サイズ" labelActions={<StepButtons value={presets.math.fontSize} min={8} max={160} step={1} onChange={(fontSize) => onPresetChange('math', { fontSize })} />}><RangeNumber value={presets.math.fontSize} min={8} max={160} step={1} onChange={(fontSize) => onPresetChange('math', { fontSize })} /></Field></>;
+  if (activeTool === 'array') return <><PresetHeader label="アレー図" /><ArraySymbolStyleEditor value={presets.array} symbolSize={presets.array.symbolSize} onChange={(patch) => onPresetChange('array', patch)} /><ArrayFields value={presets.array} onChange={(patch) => onPresetChange('array', patch)} /><p className="panel-hint">選択中に変更した色・大きさ・不透明度は、次の配置に引き継がれます。</p></>;
   if (activeTool === 'ball' || activeTool === 'person') {
     const preset = presets[activeTool];
-    return <><PresetHeader label={TOOL_LABELS[activeTool]} /><ArraySymbolStyleEditor value={preset} symbolSize={preset.symbolSize} onChange={(patch) => onPresetChange(activeTool, patch)} /><p className="panel-hint">クリックで1個ずつ配置。選択・ドラッグ・大きさ変更の結果は、次の配置に引き継がれます。</p></>;
+    return <><PresetHeader label={TOOL_LABELS[activeTool]} /><ArraySymbolStyleEditor value={preset} symbolSize={preset.symbolSize} onChange={(patch) => onPresetChange(activeTool, patch)} /><p className="panel-hint">クリックで1個ずつ配置。選択中に変更した色・大きさ・不透明度は、次の配置に引き継がれます。</p></>;
   }
   if (activeTool === 'bundle') {
     const preset = presets.bundle;
-    return <><PresetHeader label="まとまり" /><ArraySymbolStyleEditor value={preset} symbolSize={preset.symbolSize} onChange={(patch) => onPresetChange('bundle', patch)} /><BundleValueEditor value={preset.bundleValue} onChange={(bundleValue) => onPresetChange('bundle', { bundleValue })} /><p className="panel-hint">縦：横＝1：√2の比率を保って配置します。選択した「まとまり」の大きさは次の配置に引き継がれます。</p></>;
+    return <><PresetHeader label="まとまり" /><ArraySymbolStyleEditor value={preset} symbolSize={preset.symbolSize} onChange={(patch) => onPresetChange('bundle', patch)} /><BundleValueEditor value={preset.bundleValue} onChange={(bundleValue) => onPresetChange('bundle', { bundleValue })} /><p className="panel-hint">縦：横＝1：√2の比率を保って配置します。選択中に変更した色・大きさ・不透明度・数値は、次の配置に引き継がれます。</p></>;
   }
   if (activeTool === 'segment') return <><PresetHeader label="目盛り" /><LineStyleEditor value={presets.segment} onChange={(patch) => onPresetChange('segment', patch)} /><MeasureFields value={presets.segment} onChange={(patch) => onPresetChange('segment', patch)} /></>;
   return null;
@@ -2542,8 +2554,8 @@ function LineStyleEditor({ value, onChange }: { value: StylePreset; onChange: (p
   return (
     <>
       <Field label="線の色"><input type="color" value={value.stroke} onChange={(event) => onChange({ stroke: event.target.value })} /></Field>
-      <Field label="線の太さ"><RangeNumber value={value.strokeWidth} min={0.5} max={12} step={0.5} onChange={(strokeWidth) => onChange({ strokeWidth })} /></Field>
-      <Field label="不透明度"><RangeNumber value={value.opacity * 100} min={10} max={100} step={5} suffix="%" onChange={(opacity) => onChange({ opacity: opacity / 100 })} /></Field>
+      <Field label="線の太さ" labelActions={<StepButtons value={value.strokeWidth} min={0.5} max={12} step={0.5} onChange={(strokeWidth) => onChange({ strokeWidth })} />}><RangeNumber value={value.strokeWidth} min={0.5} max={12} step={0.5} onChange={(strokeWidth) => onChange({ strokeWidth })} /></Field>
+      <Field label="不透明度" labelActions={<StepButtons value={value.opacity * 100} min={10} max={100} step={5} onChange={(opacity) => onChange({ opacity: opacity / 100 })} />}><RangeNumber value={value.opacity * 100} min={10} max={100} step={5} suffix="%" onChange={(opacity) => onChange({ opacity: opacity / 100 })} /></Field>
     </>
   );
 }
@@ -2552,20 +2564,20 @@ function ArraySymbolStyleEditor({ value, symbolSize, onChange }: { value: StyleP
   return (
     <>
       <Field label="色"><input type="color" value={value.stroke} onChange={(event) => onChange({ stroke: event.target.value, fill: event.target.value })} /></Field>
-      <Field label="大きさ"><RangeNumber value={symbolSize} min={3} max={80} step={1} onChange={(next) => onChange({ symbolSize: next })} /></Field>
-      <Field label="不透明度"><RangeNumber value={value.opacity * 100} min={10} max={100} step={5} suffix="%" onChange={(opacity) => onChange({ opacity: opacity / 100 })} /></Field>
+      <Field label="大きさ" labelActions={<StepButtons value={symbolSize} min={3} max={80} step={1} onChange={(next) => onChange({ symbolSize: next })} />}><RangeNumber value={symbolSize} min={3} max={80} step={1} onChange={(next) => onChange({ symbolSize: next })} /></Field>
+      <Field label="不透明度" labelActions={<StepButtons value={value.opacity * 100} min={10} max={100} step={5} onChange={(opacity) => onChange({ opacity: opacity / 100 })} />}><RangeNumber value={value.opacity * 100} min={10} max={100} step={5} suffix="%" onChange={(opacity) => onChange({ opacity: opacity / 100 })} /></Field>
     </>
   );
 }
 
 function BundleValueEditor({ value, onChange }: { value: number; onChange: (value: number) => void }) {
-  const stops = [1, 10, 100];
+  const stops = [1, 10, 100, 1000, 10000];
   const nearestIndex = stops.reduce((best, candidate, index) => Math.abs(Math.log10(Math.max(value, 1)) - Math.log10(candidate)) < Math.abs(Math.log10(Math.max(value, 1)) - Math.log10(stops[best])) ? index : best, 0);
   return (
-    <Field label="数値">
+    <Field label="数値" labelActions={<StepButtons value={value} min={1} max={1000000} step={1} onChange={(next) => onChange(Math.max(1, next))} />}>
       <div className="bundle-value-control">
-        <input type="range" min={0} max={2} step={1} value={nearestIndex} aria-label="1、10、100から選択" onChange={(event) => onChange(stops[Number(event.target.value)])} />
-        <div className="bundle-value-stops" aria-hidden="true"><span>1</span><span>10</span><span>100</span></div>
+        <input type="range" min={0} max={stops.length - 1} step={1} value={nearestIndex} aria-label="1、10、100、1000、10000から選択" onChange={(event) => onChange(stops[Number(event.target.value)])} />
+        <div className="bundle-value-stops" aria-hidden="true">{stops.map((stop) => <span key={stop}>{stop}</span>)}</div>
         <AsciiNumber value={value} min={1} max={1000000} step={1} onChange={(next) => onChange(Math.max(1, next))} />
       </div>
     </Field>
@@ -2723,7 +2735,11 @@ function BoundEllipseFields({ object, resolvedObject, variables, coordinateUnitP
 }
 
 function ArrayFields({ value, onChange }: { value: Pick<ArrayObject, 'rowsExpr' | 'colsExpr' | 'symbol'>; onChange: (patch: Partial<ArrayObject>) => void }) {
-  return <><Field label="行数"><AsciiText value={value.rowsExpr} onChange={(rowsExpr) => onChange({ rowsExpr })} /></Field><Field label="列数"><AsciiText value={value.colsExpr} onChange={(colsExpr) => onChange({ colsExpr })} /></Field><Field label="シンボル"><select value={value.symbol} onChange={(event) => onChange({ symbol: event.target.value as ArrayObject['symbol'] })}><option value="circle">円</option><option value="square">四角</option><option value="dot">点</option><option value="cross">×</option><option value="ball">玉</option><option value="person">人</option></select></Field></>;
+  const numericRows = Number(value.rowsExpr);
+  const numericCols = Number(value.colsExpr);
+  const rowsSteppable = Number.isFinite(numericRows) && value.rowsExpr.trim() !== '';
+  const colsSteppable = Number.isFinite(numericCols) && value.colsExpr.trim() !== '';
+  return <><Field label="行数" labelActions={<StepButtons value={numericRows} min={1} max={50} step={1} disabled={!rowsSteppable} onChange={(next) => onChange({ rowsExpr: String(Math.round(next)) })} />}><AsciiText value={value.rowsExpr} onChange={(rowsExpr) => onChange({ rowsExpr })} /></Field><Field label="列数" labelActions={<StepButtons value={numericCols} min={1} max={50} step={1} disabled={!colsSteppable} onChange={(next) => onChange({ colsExpr: String(Math.round(next)) })} />}><AsciiText value={value.colsExpr} onChange={(colsExpr) => onChange({ colsExpr })} /></Field><Field label="シンボル"><select value={value.symbol} onChange={(event) => onChange({ symbol: event.target.value as ArrayObject['symbol'] })}><option value="circle">円</option><option value="square">四角</option><option value="dot">点</option><option value="cross">×</option><option value="ball">玉</option><option value="person">人</option></select></Field></>;
 }
 
 type MeasureValue = Pick<SegmentObject, 'mode' | 'tickIntervalExpr' | 'labelIntervalExpr' | 'maxValueExpr' | 'divisionPercents' | 'showMaxValue'>;
@@ -2836,7 +2852,7 @@ function SettingsEditor({ settings, onChange, onSave, onLoad, onReset }: Setting
     const visibleTools = checked ? [...new Set([...settings.visibleTools, tool])] : settings.visibleTools.filter((item) => item !== tool);
     onChange({ ...settings, visibleTools });
   };
-  return <div className="settings-grid"><section><h3>レイアウト</h3><Field label="ツールバー位置"><select value={settings.toolbarSide} onChange={(event) => onChange({ ...settings, toolbarSide: event.target.value as 'left' | 'right' })}><option value="right">右側</option><option value="left">左側</option></select></Field><Toggle label="前回の作業を自動復旧" checked={settings.autoRestore} onChange={(autoRestore) => onChange({ ...settings, autoRestore })} /><h3>新規要素の初期値</h3><Field label="線の色"><input type="color" value={settings.defaultStroke} onChange={(event) => onChange({ ...settings, defaultStroke: event.target.value })} /></Field><Field label="線の太さ"><AsciiNumber value={settings.defaultStrokeWidth} min={0.5} max={12} step={0.5} onChange={(defaultStrokeWidth) => onChange({ ...settings, defaultStrokeWidth })} /></Field></section><section><h3>表示するツール</h3><div className="tool-settings-list">{ALL_TOOLS.map((tool) => <label key={tool} className="tool-setting"><input type="checkbox" checked={settings.visibleTools.includes(tool)} onChange={(event) => toggleTool(tool, event.target.checked)} /><Icon name={tool} size={20} /><span>{TOOL_LABELS[tool]}</span></label>)}</div></section><footer className="settings-footer"><button type="button" onClick={onSave}>環境設定を書き出す</button><button type="button" onClick={onLoad}>環境設定を読み込む</button><button type="button" className="danger" onClick={onReset}>初期設定に戻す</button></footer></div>;
+  return <div className="settings-grid"><section><h3>レイアウト</h3><Field label="ツールバー位置"><select value={settings.toolbarSide} onChange={(event) => onChange({ ...settings, toolbarSide: event.target.value as 'left' | 'right' })}><option value="right">右側</option><option value="left">左側</option></select></Field><Field label="ツウィーク／f位置"><select value={settings.panelSide} onChange={(event) => onChange({ ...settings, panelSide: event.target.value as 'left' | 'right' })}><option value="right">右側</option><option value="left">左側</option></select></Field><p className="settings-note">ツウィークとfウィンドウは1組のサイドパネルとして移動します。</p><Toggle label="前回の作業を自動復旧" checked={settings.autoRestore} onChange={(autoRestore) => onChange({ ...settings, autoRestore })} /><h3>新規要素の初期値</h3><Field label="線の色"><input type="color" value={settings.defaultStroke} onChange={(event) => onChange({ ...settings, defaultStroke: event.target.value })} /></Field><Field label="線の太さ" labelActions={<StepButtons value={settings.defaultStrokeWidth} min={0.5} max={12} step={0.5} onChange={(defaultStrokeWidth) => onChange({ ...settings, defaultStrokeWidth })} />}><AsciiNumber value={settings.defaultStrokeWidth} min={0.5} max={12} step={0.5} onChange={(defaultStrokeWidth) => onChange({ ...settings, defaultStrokeWidth })} /></Field></section><section><h3>表示するツール</h3><div className="tool-settings-list">{ALL_TOOLS.map((tool) => <label key={tool} className="tool-setting"><input type="checkbox" checked={settings.visibleTools.includes(tool)} onChange={(event) => toggleTool(tool, event.target.checked)} /><Icon name={tool} size={20} /><span>{TOOL_LABELS[tool]}</span></label>)}</div></section><footer className="settings-footer"><button type="button" onClick={onSave}>環境設定を書き出す</button><button type="button" onClick={onLoad}>環境設定を読み込む</button><button type="button" className="danger" onClick={onReset}>初期設定に戻す</button></footer></div>;
 }
 
 function TextEntry({ initial, onSubmit, onCancel }: { initial: string; onSubmit: (value: string) => void; onCancel: () => void }) {
@@ -2860,7 +2876,13 @@ function MathEditor({ initial, onSubmit, onCancel }: { initial: string; onSubmit
   return <form onSubmit={(event) => { event.preventDefault(); onSubmit(value); }} className="math-editor"><div className="math-palette">{palette.map((item) => <button type="button" key={item.label} onClick={() => insert(item.token, item.offset)}>{item.label}</button>)}</div><div className="math-workspace"><textarea ref={textareaRef} autoFocus value={value} onChange={(event) => setValue(sanitizeExpression(event.target.value))} placeholder="例: y=a*x^2 / sqrt(2)" /><div className="math-live-preview"><span>プレビュー</span><strong>{prettyMath(value) || '—'}</strong></div></div><p className="math-help">半角英数と数式記号で入力します。構造入力用の記号パレットと軽量プレビューを実装しています。</p><div className="modal-actions"><button type="button" onClick={onCancel}>キャンセル</button><button type="submit" className="primary-button" disabled={!value.trim()}>確定</button></div></form>;
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) { return <label className="field"><span>{label}</span><div>{children}</div></label>; }
+function StepButtons({ value, min, max, step = 1, disabled = false, onChange }: { value: number; min: number; max: number; step?: number; disabled?: boolean; onChange: (value: number) => void }) {
+  const current = Number.isFinite(value) ? value : min;
+  const apply = (direction: -1 | 1) => onChange(roundValue(clamp(current + direction * step, min, max), 6));
+  return <span className="field-stepper" role="group" aria-label="値を増減"><button type="button" aria-label="1段階減らす" disabled={disabled || current <= min} onClick={() => apply(-1)}>−</button><button type="button" aria-label="1段階増やす" disabled={disabled || current >= max} onClick={() => apply(1)}>＋</button></span>;
+}
+
+function Field({ label, labelActions, children }: { label: React.ReactNode; labelActions?: React.ReactNode; children: React.ReactNode }) { return <div className="field"><div className="field-label"><span>{label}</span>{labelActions}</div><div className="field-control">{children}</div></div>; }
 function Toggle({ label, checked, onChange, disabled = false, compact = false }: { label: string; checked: boolean; onChange: (checked: boolean) => void; disabled?: boolean; compact?: boolean }) { return <label className={`toggle ${compact ? 'compact' : ''} ${disabled ? 'disabled' : ''}`}><input type="checkbox" checked={checked} disabled={disabled} onChange={(event) => onChange(event.target.checked)} /><span className="toggle-track"><span /></span><em>{label}</em></label>; }
 
 export default App;

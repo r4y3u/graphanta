@@ -189,6 +189,8 @@ export interface GraphantaSettings {
   format: 'graphanta-settings';
   schemaVersion: 1;
   toolbarSide: 'left' | 'right';
+  /** ツウィーク／fウィンドウを1組として配置する側。 */
+  panelSide: 'left' | 'right';
   visibleTools: ToolId[];
   defaultStroke: string;
   defaultFill: string;
