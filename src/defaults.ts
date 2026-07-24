@@ -1,7 +1,7 @@
 import { createId } from './lib/geometry';
 import type { GraphantaProject, GraphantaSettings, ToolId } from './types';
 
-export const APP_VERSION = '0.2.0-alpha.7';
+export const APP_VERSION = '0.3.0-alpha.1';
 
 export const ALL_TOOLS: ToolId[] = [
   'select', 'pan', 'zoom', 'pen', 'line', 'arrow', 'rectangle', 'ellipse', 'polygon',

@@ -1,6 +1,6 @@
 <!doctype html>
 <!-- 単体起動版: CSS・JavaScriptを内包し、通信なしで動作します。 -->
-<html lang="ja"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover"><meta name="theme-color" content="#4f46e5"><meta name="description" content="Graphanta - 数学的な思考と表現を支える図・グラフ作成アプリ"><title>Graphanta v0.2.0-alpha.7</title><style>:root {
+<html lang="ja"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover"><meta name="theme-color" content="#4f46e5"><meta name="description" content="Graphanta - 数学的な思考と表現を支える図・グラフ作成アプリ"><title>Graphanta v0.3.0-alpha.1</title><style>:root {
   font-family: Inter, "Noto Sans JP", "Yu Gothic UI", "Yu Gothic", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
   color: #20273b;
   background: #edf0f8;
@@ -905,6 +905,34 @@ button:not(:disabled) {
     transition-duration: .01ms !important;
   }
 }
+
+/* v0.3.0-alpha.1: structured math layout */
+.expression-preview {
+  min-height: 58px;
+  overflow: hidden;
+}
+.expression-preview-svg {
+  display: block;
+  width: 100%;
+  height: 54px;
+}
+.math-preview-svg {
+  display: block;
+  width: 100%;
+  height: min(150px, 24vh);
+  overflow: visible;
+}
+.math-live-preview.has-warning {
+  border-color: #e4b55c;
+  background: linear-gradient(160deg, #fffaf0, #fff8ff);
+}
+.math-live-preview small {
+  max-width: 100%;
+  color: #9a5b13;
+  font-size: 10px;
+  line-height: 1.4;
+  text-align: center;
+}
 </style></head><body><div id="root"></div><script>const __vite__mapDeps=(i,m=__vite__mapDeps,d=(m.f||(m.f=["./codeMirrorModule-Bucv2d7q.js","../codeMirrorModule.C3UTv-Ge.css"])))=>i.map(i=>d[i]);
 var R1=Object.defineProperty;var j1=(n,e,i)=>e in n?R1(n,e,{enumerable:!0,configurable:!0,writable:!0,value:i}):n[e]=i;var Te=(n,e,i)=>j1(n,typeof e!="symbol"?e+"":e,i);(function(){const e=document.createElement("link").relList;if(e&&e.supports&&e.supports("modulepreload"))return;for(const l of document.querySelectorAll('link[rel="modulepreload"]'))s(l);new MutationObserver(l=>{for(const o of l)if(o.type==="childList")for(const u of o.addedNodes)u.tagName==="LINK"&&u.rel==="modulepreload"&&s(u)}).observe(document,{childList:!0,subtree:!0});function i(l){const o={};return l.integrity&&(o.integrity=l.integrity),l.referrerPolicy&&(o.referrerPolicy=l.referrerPolicy),l.crossOrigin==="use-credentials"?o.credentials="include":l.crossOrigin==="anonymous"?o.credentials="omit":o.credentials="same-origin",o}function s(l){if(l.ep)return;l.ep=!0;const o=i(l);fetch(l.href,o)}})();function L1(n){return n&&n.__esModule&&Object.prototype.hasOwnProperty.call(n,"default")?n.default:n}var Yf={exports:{}},Ma={};/**
  * @license React
@@ -967,6 +995,8 @@ const Modal_1 = require("./components/Modal");
 const Toolbar_1 = require("./components/Toolbar");
 const geometry_1 = require("./lib/geometry");
 const math_1 = require("./lib/math");
+const StructuredMath_1 = require("./components/StructuredMath");
+const math_layout_1 = require("./lib/math-layout");
 const screenshot_1 = require("./lib/screenshot");
 const storage_1 = require("./lib/storage");
 const TOOL_CONTEXT_GROUPS = [
@@ -1180,8 +1210,10 @@ function getObjectBounds(object) {
             return { x: object.cx - object.rx, y: object.cy - object.ry, width: object.rx * 2, height: object.ry * 2 };
         case 'text':
             return { x: object.x - 4, y: object.y - object.fontSize, width: Math.max(30, object.text.length * object.fontSize * 0.62), height: object.fontSize * 1.3 };
-        case 'math':
-            return { x: object.x - 4, y: object.y - object.fontSize, width: Math.max(40, (0, math_1.prettyMath)(object.expression).length * object.fontSize * 0.62), height: object.fontSize * 1.3 };
+        case 'math': {
+            const measured = (0, math_layout_1.measureMathExpression)(object.expression, object.fontSize);
+            return { x: object.x - 4, y: object.y - measured.baseline - 4, width: Math.max(40, measured.width + 8), height: Math.max(object.fontSize * 1.1, measured.height + 8) };
+        }
     }
 }
 function objectRotation(object) {
@@ -2797,7 +2829,7 @@ function App() {
                 case 'ellipse': return React.createElement("ellipse", { cx: object.cx, cy: object.cy, rx: object.rx, ry: object.ry, ...common, transform: transform });
                 case 'polygon': return React.createElement("polygon", { points: object.points.map((point) => `${point.x},${point.y}`).join(' '), ...common, transform: transform });
                 case 'text': return React.createElement("text", { x: object.x, y: object.y, fontSize: object.fontSize, fontWeight: object.fontWeight, textAnchor: object.align, fill: object.stroke, stroke: "none", opacity: object.opacity }, object.text);
-                case 'math': return React.createElement("text", { x: object.x, y: object.y, fontSize: object.fontSize, fontFamily: "Georgia, 'Times New Roman', serif", fontStyle: "italic", fill: object.stroke, stroke: "none", opacity: object.opacity }, (0, math_1.prettyMath)(object.expression));
+                case 'math': return React.createElement(StructuredMath_1.StructuredMath, { source: object.expression, x: object.x, y: object.y, fontSize: object.fontSize, color: object.stroke, opacity: object.opacity });
                 case 'array': return React.createElement("g", { opacity: object.opacity, transform: transform }, renderArray(object));
                 case 'segment': return React.createElement("g", { ...common, fill: "none" }, renderMeasure(object));
             }
@@ -3682,7 +3714,7 @@ function ExpressionPanel({ project, onAddVariable, onUpdateVariable, onDeleteVar
                 React.createElement("input", { className: "expression-label", value: expression.label, onChange: (event) => onUpdateExpression(expression.id, { label: event.target.value }) }),
                 React.createElement("button", { type: "button", className: "mini-delete", onClick: () => onDeleteExpression(expression.id) }, "\u00D7")),
             React.createElement("input", { className: "expression-source", placeholder: "\u4F8B: y=a*x^2", value: expression.source, onChange: (event) => onUpdateExpression(expression.id, { source: sanitizeExpression(event.target.value) }, false), onBlur: (event) => onUpdateExpression(expression.id, { source: sanitizeExpression(event.target.value) }) }),
-            React.createElement("div", { className: "expression-preview" }, (0, math_1.prettyMath)(expression.source) || '数式を入力'),
+            React.createElement("div", { className: "expression-preview" }, expression.source.trim() ? React.createElement(StructuredMath_1.MathPreview, { source: expression.source, fontSize: 22, className: "expression-preview-svg", minWidth: 120 }) : React.createElement("span", null, "\u6570\u5F0F\u3092\u5165\u529B")),
             React.createElement("div", { className: "expression-actions" },
                 React.createElement("button", { type: "button", onClick: () => onEditDetailed(expression) }, "\u8A73\u7D30\u5165\u529B"),
                 React.createElement("button", { type: "button", onClick: () => onPlace(expression), disabled: !expression.source.trim() }, "\u914D\u7F6E"))))),
@@ -3735,6 +3767,7 @@ function TextEntry({ initial, onSubmit, onCancel }) {
 function MathEditor({ initial, onSubmit, onCancel }) {
     const [value, setValue] = (0, react_1.useState)(sanitizeExpression(initial));
     const textareaRef = (0, react_1.useRef)(null);
+    const previewMeasure = (0, math_layout_1.measureMathExpression)(value, 38);
     const insert = (token, caretOffset = token.length) => {
         const textarea = textareaRef.current;
         if (!textarea) {
@@ -3745,20 +3778,34 @@ function MathEditor({ initial, onSubmit, onCancel }) {
         const end = textarea.selectionEnd;
         const next = value.slice(0, start) + token + value.slice(end);
         setValue(next);
-        requestAnimationFrame(() => { textarea.focus(); textarea.setSelectionRange(start + caretOffset, start + caretOffset); });
+        requestAnimationFrame(() => {
+            textarea.focus();
+            textarea.setSelectionRange(start + caretOffset, start + caretOffset);
+        });
     };
-    const palette = [{ label: '分数', token: '()/()', offset: 1 }, { label: '平方根', token: 'sqrt()', offset: 5 }, { label: '累乗', token: '^()', offset: 2 }, { label: '下付き', token: '_()', offset: 2 }, { label: 'π', token: 'pi', offset: 2 }, { label: '絶対値', token: 'abs()', offset: 4 }, { label: 'Σ', token: 'sum()', offset: 4 }, { label: '∫', token: 'int()', offset: 4 }, { label: '行列', token: 'matrix([,],[,])', offset: 8 }];
-    return React.createElement("form", { onSubmit: (event) => { event.preventDefault(); onSubmit(value); }, className: "math-editor" },
+    const palette = [
+        { label: '分数', token: 'frac(,)', offset: 5 },
+        { label: '平方根', token: 'sqrt()', offset: 5 },
+        { label: '累乗', token: '^()', offset: 2 },
+        { label: '下付き', token: '_()', offset: 2 },
+        { label: 'π', token: 'pi', offset: 2 },
+        { label: '絶対値', token: 'abs()', offset: 4 },
+        { label: 'Σ', token: 'sum()', offset: 4 },
+        { label: '∫', token: 'int()', offset: 4 },
+        { label: '複分数例', token: 'sqrt(b*x^2)/(a-1)/x', offset: 19 },
+    ];
+    return (React.createElement("form", { onSubmit: (event) => { event.preventDefault(); onSubmit(value); }, className: "math-editor" },
         React.createElement("div", { className: "math-palette" }, palette.map((item) => React.createElement("button", { type: "button", key: item.label, onClick: () => insert(item.token, item.offset) }, item.label))),
         React.createElement("div", { className: "math-workspace" },
-            React.createElement("textarea", { ref: textareaRef, autoFocus: true, value: value, onChange: (event) => setValue(sanitizeExpression(event.target.value)), placeholder: "\u4F8B: y=a*x^2 / sqrt(2)" }),
-            React.createElement("div", { className: "math-live-preview" },
-                React.createElement("span", null, "\u30D7\u30EC\u30D3\u30E5\u30FC"),
-                React.createElement("strong", null, (0, math_1.prettyMath)(value) || '—'))),
-        React.createElement("p", { className: "math-help" }, "\u534A\u89D2\u82F1\u6570\u3068\u6570\u5F0F\u8A18\u53F7\u3067\u5165\u529B\u3057\u307E\u3059\u3002\u69CB\u9020\u5165\u529B\u7528\u306E\u8A18\u53F7\u30D1\u30EC\u30C3\u30C8\u3068\u8EFD\u91CF\u30D7\u30EC\u30D3\u30E5\u30FC\u3092\u5B9F\u88C5\u3057\u3066\u3044\u307E\u3059\u3002"),
+            React.createElement("textarea", { ref: textareaRef, autoFocus: true, value: value, onChange: (event) => setValue(sanitizeExpression(event.target.value)), placeholder: "\u4F8B: sqrt(b*x^2)/(a-1)/x", "aria-describedby": "math-syntax-help" }),
+            React.createElement("div", { className: `math-live-preview ${previewMeasure.valid ? '' : 'has-warning'}` },
+                React.createElement("span", null, "\u69CB\u9020\u30D7\u30EC\u30D3\u30E5\u30FC"),
+                value.trim() ? React.createElement(StructuredMath_1.MathPreview, { source: value, fontSize: 38, className: "math-preview-svg", minWidth: 180 }) : React.createElement("strong", null, "\u2014"),
+                !previewMeasure.valid && React.createElement("small", null, previewMeasure.error))),
+        React.createElement("p", { className: "math-help", id: "math-syntax-help" }, "\u534A\u89D2\u82F1\u6570\u3068\u6570\u5F0F\u8A18\u53F7\u3067\u5165\u529B\u3057\u307E\u3059\u3002/ \u306F\u5206\u6570\u3001^ \u306F\u4E0A\u4ED8\u304D\u3001_ \u306F\u4E0B\u4ED8\u304D\u3068\u3057\u3066\u7D44\u7248\u3055\u308C\u307E\u3059\u3002\u5206\u6570\u3092\u91CD\u306D\u308B\u3068\u8907\u5206\u6570\u306B\u306A\u308A\u307E\u3059\u3002"),
         React.createElement("div", { className: "modal-actions" },
             React.createElement("button", { type: "button", onClick: onCancel }, "\u30AD\u30E3\u30F3\u30BB\u30EB"),
-            React.createElement("button", { type: "submit", className: "primary-button", disabled: !value.trim() }, "\u78BA\u5B9A")));
+            React.createElement("button", { type: "submit", className: "primary-button", disabled: !value.trim() }, "\u78BA\u5B9A"))));
 }
 function StepButtons({ value, min, max, step = 1, disabled = false, onChange }) {
     const current = Number.isFinite(value) ? value : min;
@@ -3898,6 +3945,37 @@ function Modal({ title, children, onClose, wide = false }) {
                 React.createElement("h2", null, title),
                 React.createElement("button", { type: "button", className: "icon-button", onClick: onClose, "aria-label": "\u9589\u3058\u308B" }, "\u00D7")),
             React.createElement("div", { className: "modal-body" }, children))));
+}
+
+},
+"src/components/StructuredMath":function(module,exports,require){
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.StructuredMath = StructuredMath;
+exports.MathPreview = MathPreview;
+const math_layout_1 = require("../lib/math-layout");
+function StructuredMath({ source, x, y, fontSize, color, opacity = 1, className }) {
+    const layout = (0, math_layout_1.buildMathLayout)(source, fontSize);
+    const content = layout.draws.map((draw, index) => {
+        if (draw.kind === 'text') {
+            return (React.createElement("text", { key: index, x: draw.x, y: draw.y, fontSize: draw.fontSize, fontFamily: "Georgia, 'Times New Roman', 'Noto Serif', serif", fontStyle: draw.italic ? 'italic' : 'normal', fontWeight: draw.weight ?? 400, fill: color, stroke: "none" }, draw.text));
+        }
+        if (draw.kind === 'line') {
+            return React.createElement("line", { key: index, x1: draw.x1, y1: draw.y1, x2: draw.x2, y2: draw.y2, stroke: color, strokeWidth: draw.strokeWidth, strokeLinecap: "square", vectorEffect: "non-scaling-stroke" });
+        }
+        return React.createElement("path", { key: index, d: draw.d, fill: "none", stroke: color, strokeWidth: draw.strokeWidth, strokeLinecap: "round", strokeLinejoin: "round", vectorEffect: "non-scaling-stroke" });
+    });
+    return React.createElement("g", { className: className, transform: `translate(${x} ${y - layout.baseline})`, opacity: opacity }, content);
+}
+function MathPreview({ source, fontSize = 34, className, color = '#252d43', minWidth = 80 }) {
+    const layout = (0, math_layout_1.buildMathLayout)(source, fontSize);
+    const padding = Math.max(8, fontSize * 0.28);
+    const width = Math.max(minWidth, layout.width + padding * 2);
+    const height = Math.max(fontSize * 1.5, layout.height + padding * 2);
+    const x = (width - layout.width) / 2;
+    const y = (height - layout.height) / 2 + layout.baseline;
+    return (React.createElement("svg", { className: className, viewBox: `0 0 ${width} ${height}`, role: "img", "aria-label": source ? `数式 ${source}` : '数式プレビュー', preserveAspectRatio: "xMidYMid meet" },
+        React.createElement(StructuredMath, { source: source, x: x, y: y, fontSize: fontSize, color: color })));
 }
 
 },
@@ -4071,7 +4149,7 @@ exports.TOOL_LABELS = exports.BASIC_TOOLS = exports.ALL_TOOLS = exports.APP_VERS
 exports.createInitialProject = createInitialProject;
 exports.createDefaultSettings = createDefaultSettings;
 const geometry_1 = require("./lib/geometry");
-exports.APP_VERSION = '0.2.0-alpha.7';
+exports.APP_VERSION = '0.3.0-alpha.1';
 exports.ALL_TOOLS = [
     'select', 'pan', 'zoom', 'pen', 'line', 'arrow', 'rectangle', 'ellipse', 'polygon',
     'text', 'math', 'array', 'ball', 'person', 'bundle', 'segment', 'function',
@@ -4216,6 +4294,422 @@ function pointsToPath(points) {
 }
 function distance(a, b) {
     return Math.hypot(a.x - b.x, a.y - b.y);
+}
+
+},
+"src/lib/math-layout":function(module,exports,require){
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.buildMathLayout = buildMathLayout;
+exports.measureMathExpression = measureMathExpression;
+class MathParseError extends Error {
+}
+function tokenize(source) {
+    const tokens = [];
+    let index = 0;
+    while (index < source.length) {
+        const character = source[index];
+        if (/\s/.test(character)) {
+            index += 1;
+            continue;
+        }
+        if (/[0-9.]/.test(character)) {
+            const start = index;
+            let dots = character === '.' ? 1 : 0;
+            index += 1;
+            while (index < source.length && /[0-9.]/.test(source[index])) {
+                if (source[index] === '.')
+                    dots += 1;
+                if (dots > 1)
+                    break;
+                index += 1;
+            }
+            tokens.push({ kind: 'number', value: source.slice(start, index) });
+            continue;
+        }
+        if (/[A-Za-zπ]/.test(character)) {
+            const start = index;
+            index += 1;
+            while (index < source.length && /[A-Za-z0-9π]/.test(source[index]))
+                index += 1;
+            tokens.push({ kind: 'identifier', value: source.slice(start, index) });
+            continue;
+        }
+        if ('+-*/^_='.includes(character)) {
+            tokens.push({ kind: 'operator', value: character });
+            index += 1;
+            continue;
+        }
+        if (character === '(') {
+            tokens.push({ kind: 'left', value: character });
+            index += 1;
+            continue;
+        }
+        if (character === ')') {
+            tokens.push({ kind: 'right', value: character });
+            index += 1;
+            continue;
+        }
+        if (character === ',') {
+            tokens.push({ kind: 'comma', value: character });
+            index += 1;
+            continue;
+        }
+        throw new MathParseError(`未対応の記号です: ${character}`);
+    }
+    return tokens;
+}
+class MathParser {
+    tokens;
+    index = 0;
+    constructor(tokens) {
+        this.tokens = tokens;
+    }
+    parse() {
+        if (this.tokens.length === 0)
+            return { type: 'atom', value: '', italic: false };
+        const node = this.parseEquality();
+        if (this.current())
+            throw new MathParseError(`「${this.current()?.value ?? ''}」の前後を解釈できません`);
+        return node;
+    }
+    current() {
+        return this.tokens[this.index];
+    }
+    consume() {
+        const token = this.tokens[this.index];
+        if (!token)
+            throw new MathParseError('式が途中で終わっています');
+        this.index += 1;
+        return token;
+    }
+    matches(kind, value) {
+        const token = this.current();
+        return Boolean(token && token.kind === kind && (value === undefined || token.value === value));
+    }
+    parseEquality() {
+        let node = this.parseAdditive();
+        while (this.matches('operator', '=')) {
+            this.consume();
+            node = { type: 'binary', operator: '=', left: node, right: this.parseAdditive() };
+        }
+        return node;
+    }
+    parseAdditive() {
+        let node = this.parseMultiplicative();
+        while (this.matches('operator', '+') || this.matches('operator', '-')) {
+            const operator = this.consume().value;
+            node = { type: 'binary', operator, left: node, right: this.parseMultiplicative() };
+        }
+        return node;
+    }
+    parseMultiplicative() {
+        let node = this.parseUnary();
+        while (this.matches('operator', '*') || this.matches('operator', '/')) {
+            const operator = this.consume().value;
+            node = { type: 'binary', operator, left: node, right: this.parseUnary() };
+        }
+        return node;
+    }
+    parseUnary() {
+        if (this.matches('operator', '+') || this.matches('operator', '-')) {
+            const operator = this.consume().value;
+            const body = this.parseUnary();
+            if (operator === '+')
+                return body;
+            return { type: 'sequence', items: [{ type: 'atom', value: '−', italic: false }, body] };
+        }
+        return this.parseScripts();
+    }
+    parseScripts() {
+        let base = this.parsePrimary();
+        let superscript;
+        let subscript;
+        while (this.matches('operator', '^') || this.matches('operator', '_')) {
+            const operator = this.consume().value;
+            const script = this.parseScriptArgument();
+            if (operator === '^')
+                superscript = script;
+            else
+                subscript = script;
+        }
+        if (superscript || subscript)
+            base = { type: 'scripts', base, superscript, subscript };
+        return base;
+    }
+    parseScriptArgument() {
+        if (this.matches('left')) {
+            this.consume();
+            const body = this.parseEquality();
+            if (!this.matches('right'))
+                throw new MathParseError('指数・添字の閉じ括弧が必要です');
+            this.consume();
+            return body;
+        }
+        return this.parsePrimary();
+    }
+    parsePrimary() {
+        const token = this.consume();
+        if (token.kind === 'number')
+            return { type: 'atom', value: token.value, italic: false };
+        if (token.kind === 'identifier') {
+            const displayName = token.value === 'pi' ? 'π' : token.value;
+            if (this.matches('left')) {
+                this.consume();
+                const args = [];
+                if (!this.matches('right')) {
+                    args.push(this.parseEquality());
+                    while (this.matches('comma')) {
+                        this.consume();
+                        args.push(this.parseEquality());
+                    }
+                }
+                if (!this.matches('right'))
+                    throw new MathParseError(`${token.value} の閉じ括弧が必要です`);
+                this.consume();
+                if (token.value === 'sqrt' && args.length === 1)
+                    return { type: 'root', body: args[0] };
+                if (token.value === 'abs' && args.length === 1)
+                    return { type: 'absolute', body: args[0] };
+                if (token.value === 'frac' && args.length === 2)
+                    return { type: 'binary', operator: '/', left: args[0], right: args[1] };
+                return { type: 'function', name: displayName, args };
+            }
+            return { type: 'atom', value: displayName, italic: true };
+        }
+        if (token.kind === 'left') {
+            const body = this.parseEquality();
+            if (!this.matches('right'))
+                throw new MathParseError('閉じ括弧が必要です');
+            this.consume();
+            return { type: 'group', body };
+        }
+        throw new MathParseError(`「${token.value}」を式の要素として解釈できません`);
+    }
+}
+function characterWidth(character, fontSize) {
+    if (/[il1.,]/.test(character))
+        return fontSize * 0.31;
+    if (/[mwMW]/.test(character))
+        return fontSize * 0.82;
+    if (/[+−=·×]/.test(character))
+        return fontSize * 0.7;
+    if (/[()|]/.test(character))
+        return fontSize * 0.38;
+    if (/[0-9]/.test(character))
+        return fontSize * 0.54;
+    if (character === 'π')
+        return fontSize * 0.58;
+    return fontSize * 0.56;
+}
+function measureText(text, fontSize) {
+    return [...text].reduce((total, character) => total + characterWidth(character, fontSize), 0);
+}
+function offsetDraw(draw, x, y) {
+    if (draw.kind === 'text')
+        return { ...draw, x: draw.x + x, y: draw.y + y };
+    if (draw.kind === 'line')
+        return { ...draw, x1: draw.x1 + x, x2: draw.x2 + x, y1: draw.y1 + y, y2: draw.y2 + y };
+    return { ...draw, d: translatePath(draw.d, x, y) };
+}
+function translatePath(path, x, y) {
+    const numbers = path.match(/-?\d+(?:\.\d+)?/g);
+    if (!numbers)
+        return path;
+    let index = 0;
+    return path.replace(/-?\d+(?:\.\d+)?/g, (value) => {
+        const numeric = Number(value);
+        const translated = numeric + (index % 2 === 0 ? x : y);
+        index += 1;
+        return String(Number(translated.toFixed(4)));
+    });
+}
+function atomLayout(value, fontSize, italic) {
+    const ascent = fontSize * 0.78;
+    const descent = fontSize * 0.22;
+    return {
+        width: Math.max(value ? measureText(value, fontSize) : fontSize * 0.25, 0.01),
+        height: ascent + descent,
+        baseline: ascent,
+        draws: value ? [{ kind: 'text', x: 0, y: ascent, text: value, fontSize, italic }] : [],
+    };
+}
+function sequenceLayout(items, fontSize, gap = 0) {
+    if (items.length === 0)
+        return atomLayout('', fontSize, false);
+    const baseline = Math.max(...items.map((item) => item.baseline));
+    const descent = Math.max(...items.map((item) => item.height - item.baseline));
+    let x = 0;
+    const draws = [];
+    items.forEach((item, index) => {
+        const y = baseline - item.baseline;
+        item.draws.forEach((draw) => draws.push(offsetDraw(draw, x, y)));
+        x += item.width;
+        if (index < items.length - 1)
+            x += gap;
+    });
+    return { width: x, height: baseline + descent, baseline, draws };
+}
+function fractionLayout(numeratorNode, denominatorNode, fontSize) {
+    const childSize = fontSize * 0.82;
+    const numerator = layoutNode(numeratorNode, childSize);
+    const denominator = layoutNode(denominatorNode, childSize);
+    const sidePadding = fontSize * 0.18;
+    const lineGap = fontSize * 0.12;
+    const lineWidth = Math.max(fontSize * 0.055, 1);
+    const width = Math.max(numerator.width, denominator.width) + sidePadding * 2;
+    const numeratorX = (width - numerator.width) / 2;
+    const numeratorY = 0;
+    const lineY = numerator.height + lineGap;
+    const denominatorX = (width - denominator.width) / 2;
+    const denominatorY = lineY + lineGap + lineWidth;
+    const baseline = lineY + fontSize * 0.27;
+    const height = denominatorY + denominator.height;
+    const draws = [];
+    numerator.draws.forEach((draw) => draws.push(offsetDraw(draw, numeratorX, numeratorY)));
+    draws.push({ kind: 'line', x1: 0, y1: lineY, x2: width, y2: lineY, strokeWidth: lineWidth });
+    denominator.draws.forEach((draw) => draws.push(offsetDraw(draw, denominatorX, denominatorY)));
+    return { width, height, baseline, draws };
+}
+function scriptsLayout(node, fontSize) {
+    const base = layoutNode(node.base, fontSize);
+    const scriptSize = fontSize * 0.62;
+    const superscript = node.superscript ? layoutNode(node.superscript, scriptSize) : null;
+    const subscript = node.subscript ? layoutNode(node.subscript, scriptSize) : null;
+    const scriptWidth = Math.max(superscript?.width ?? 0, subscript?.width ?? 0);
+    const scriptGap = fontSize * 0.06;
+    const baseTop = superscript ? Math.max(0, superscript.height - fontSize * 0.28) : 0;
+    const baseline = baseTop + base.baseline;
+    const superscriptY = superscript ? Math.max(0, baseline - fontSize * 0.82 - superscript.height * 0.45) : 0;
+    const subscriptY = subscript ? baseline + fontSize * 0.1 : 0;
+    const height = Math.max(baseTop + base.height, superscript ? superscriptY + superscript.height : 0, subscript ? subscriptY + subscript.height : 0);
+    const draws = [];
+    base.draws.forEach((draw) => draws.push(offsetDraw(draw, 0, baseTop)));
+    if (superscript)
+        superscript.draws.forEach((draw) => draws.push(offsetDraw(draw, base.width + scriptGap, superscriptY)));
+    if (subscript)
+        subscript.draws.forEach((draw) => draws.push(offsetDraw(draw, base.width + scriptGap, subscriptY)));
+    return { width: base.width + (scriptWidth ? scriptGap + scriptWidth : 0), height, baseline, draws };
+}
+function rootLayout(bodyNode, fontSize) {
+    const body = layoutNode(bodyNode, fontSize * 0.9);
+    const rootWidth = fontSize * 0.55;
+    const topPadding = fontSize * 0.13;
+    const bodyX = rootWidth + fontSize * 0.03;
+    const bodyY = topPadding;
+    const baseline = bodyY + body.baseline;
+    const bottom = bodyY + body.height;
+    const strokeWidth = Math.max(fontSize * 0.05, 1);
+    const checkStartX = fontSize * 0.04;
+    const checkStartY = baseline - fontSize * 0.08;
+    const checkMidX = fontSize * 0.2;
+    const checkMidY = baseline + fontSize * 0.2;
+    const checkPeakX = rootWidth * 0.82;
+    const checkPeakY = topPadding;
+    const width = bodyX + body.width + fontSize * 0.06;
+    const draws = [
+        { kind: 'path', d: `M ${checkStartX} ${checkStartY} L ${checkMidX} ${checkMidY} L ${checkPeakX} ${checkPeakY} L ${width} ${checkPeakY}`, strokeWidth },
+    ];
+    body.draws.forEach((draw) => draws.push(offsetDraw(draw, bodyX, bodyY)));
+    return { width, height: Math.max(bottom, checkMidY + strokeWidth), baseline, draws };
+}
+function groupLayout(bodyNode, fontSize) {
+    const body = layoutNode(bodyNode, fontSize);
+    const bracketSize = Math.max(fontSize, body.height * 0.92);
+    const left = atomLayout('(', bracketSize, false);
+    const right = atomLayout(')', bracketSize, false);
+    const baseline = Math.max(body.baseline, left.baseline, right.baseline);
+    return sequenceLayout([left, body, right], fontSize, fontSize * 0.04 + Math.max(0, baseline - body.baseline) * 0.01);
+}
+function absoluteLayout(bodyNode, fontSize) {
+    const body = layoutNode(bodyNode, fontSize);
+    const padding = fontSize * 0.13;
+    const lineWidth = Math.max(fontSize * 0.045, 1);
+    const width = body.width + padding * 2 + lineWidth * 2;
+    const draws = [
+        { kind: 'line', x1: lineWidth / 2, y1: 0, x2: lineWidth / 2, y2: body.height, strokeWidth: lineWidth },
+        { kind: 'line', x1: width - lineWidth / 2, y1: 0, x2: width - lineWidth / 2, y2: body.height, strokeWidth: lineWidth },
+    ];
+    body.draws.forEach((draw) => draws.push(offsetDraw(draw, padding + lineWidth, 0)));
+    return { width, height: body.height, baseline: body.baseline, draws };
+}
+function functionLayout(node, fontSize) {
+    if ((node.name === 'sum' || node.name === 'Σ') && node.args.length === 1) {
+        return sequenceLayout([atomLayout('Σ', fontSize * 1.12, false), layoutNode(node.args[0], fontSize)], fontSize, fontSize * 0.08);
+    }
+    if ((node.name === 'int' || node.name === '∫') && node.args.length === 1) {
+        return sequenceLayout([atomLayout('∫', fontSize * 1.2, false), layoutNode(node.args[0], fontSize)], fontSize, fontSize * 0.08);
+    }
+    const name = atomLayout(node.name, fontSize * 0.88, false);
+    const args = node.args.map((arg) => layoutNode(arg, fontSize));
+    const comma = atomLayout(',', fontSize, false);
+    const joined = [];
+    args.forEach((arg, index) => {
+        if (index > 0)
+            joined.push(comma);
+        joined.push(arg);
+    });
+    const body = sequenceLayout(joined, fontSize, fontSize * 0.04);
+    return sequenceLayout([name, parenthesizedLayout(body, fontSize)], fontSize, fontSize * 0.03);
+}
+function parenthesizedLayout(body, fontSize) {
+    const bracketSize = Math.max(fontSize, body.height * 0.92);
+    const left = atomLayout('(', bracketSize, false);
+    const right = atomLayout(')', bracketSize, false);
+    return sequenceLayout([left, body, right], fontSize, fontSize * 0.03);
+}
+function layoutNode(node, fontSize) {
+    switch (node.type) {
+        case 'atom':
+            return atomLayout(node.value, fontSize, node.italic);
+        case 'sequence':
+            return sequenceLayout(node.items.map((item) => layoutNode(item, fontSize)), fontSize, fontSize * 0.025);
+        case 'binary': {
+            if (node.operator === '/')
+                return fractionLayout(node.left, node.right, fontSize);
+            const operator = node.operator === '*' ? '·' : node.operator === '-' ? '−' : node.operator;
+            return sequenceLayout([layoutNode(node.left, fontSize), atomLayout(operator, fontSize, false), layoutNode(node.right, fontSize)], fontSize, node.operator === '*' ? fontSize * 0.08 : fontSize * 0.14);
+        }
+        case 'scripts':
+            return scriptsLayout(node, fontSize);
+        case 'root':
+            return rootLayout(node.body, fontSize);
+        case 'absolute':
+            return absoluteLayout(node.body, fontSize);
+        case 'group':
+            return groupLayout(node.body, fontSize);
+        case 'function':
+            return functionLayout(node, fontSize);
+    }
+}
+function fallbackLayout(source, fontSize) {
+    const normalized = source
+        .replace(/\*/g, '·')
+        .replace(/\^2\b/g, '²')
+        .replace(/\^3\b/g, '³')
+        .replace(/sqrt\s*\(/g, '√(')
+        .replace(/pi\b/g, 'π');
+    return atomLayout(normalized, fontSize, true);
+}
+function buildMathLayout(source, fontSize) {
+    const normalized = source.trim();
+    if (!normalized) {
+        const empty = atomLayout('', fontSize, false);
+        return { ...empty, valid: true };
+    }
+    try {
+        const node = new MathParser(tokenize(normalized)).parse();
+        const layout = layoutNode(node, fontSize);
+        return { ...layout, valid: true };
+    }
+    catch (error) {
+        const fallback = fallbackLayout(normalized, fontSize);
+        return { ...fallback, valid: false, error: error instanceof Error ? error.message : '数式を解釈できません' };
+    }
+}
+function measureMathExpression(source, fontSize) {
+    const { width, height, baseline, valid, error } = buildMathLayout(source, fontSize);
+    return { width, height, baseline, valid, error };
 }
 
 },
@@ -4763,26 +5257,9 @@ if ('serviceWorker' in navigator && true && isWebProtocol) {
 Object.defineProperty(exports, "__esModule", { value: true });
 
 }};
-const __cache=Object.create(null);
+const __cache={};
 function __normalize(path){const out=[];for(const part of path.split('/')){if(!part||part==='.')continue;if(part==='..')out.pop();else out.push(part)}return out.join('/')}
-function __resolve(from,request){
- if(request==='react')return '@react';
- if(request==='react-dom/client')return '@react-dom/client';
- if(request.endsWith('.css'))return '@css';
- if(!request.startsWith('.'))throw new Error('未対応のモジュール: '+request);
- const base=from.split('/').slice(0,-1).join('/');
- let id=__normalize(base+'/'+request).replace(/\.(tsx?|jsx?)$/,'');
- if(__modules[id])return id;if(__modules[id+'/index'])return id+'/index';
- throw new Error('モジュールを解決できません: '+request+' from '+from);
-}
-function __require(id){
- if(id==='@react')return globalThis.React;
- if(id==='@react-dom/client')return globalThis.ReactDOMClient;
- if(id==='@css')return {};
- if(__cache[id])return __cache[id].exports;
- const factory=__modules[id];if(!factory)throw new Error('モジュールがありません: '+id);
- const module={exports:{}};__cache[id]=module;
- factory(module,module.exports,(request)=>__require(__resolve(id,request)));return module.exports;
-}
+function __resolve(from,request){if(request==='react')return '@react';if(request==='react-dom/client')return '@react-dom/client';if(request.endsWith('.css'))return '@css';if(!request.startsWith('.'))throw new Error('未対応のモジュール: '+request);const base=from.split('/').slice(0,-1).join('/');let id=__normalize(base+'/'+request).replace(/\.(tsx?|jsx?)$/,'');if(__modules[id])return id;if(__modules[id+'/index'])return id+'/index';throw new Error('モジュールを解決できません: '+request+' from '+from)}
+function __require(id){if(id==='@react')return globalThis.React;if(id==='@react-dom/client')return globalThis.ReactDOMClient;if(id==='@css')return {};if(__cache[id])return __cache[id].exports;const factory=__modules[id];if(!factory)throw new Error('モジュールがありません: '+id);const module={exports:{}};__cache[id]=module;factory(module,module.exports,(request)=>__require(__resolve(id,request)));return module.exports}
 __require('src/main');
 })();</script></body></html>

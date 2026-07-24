@@ -903,3 +903,31 @@ button:not(:disabled) {
     transition-duration: .01ms !important;
   }
 }
+
+/* v0.3.0-alpha.1: structured math layout */
+.expression-preview {
+  min-height: 58px;
+  overflow: hidden;
+}
+.expression-preview-svg {
+  display: block;
+  width: 100%;
+  height: 54px;
+}
+.math-preview-svg {
+  display: block;
+  width: 100%;
+  height: min(150px, 24vh);
+  overflow: visible;
+}
+.math-live-preview.has-warning {
+  border-color: #e4b55c;
+  background: linear-gradient(160deg, #fffaf0, #fff8ff);
+}
+.math-live-preview small {
+  max-width: 100%;
+  color: #9a5b13;
+  font-size: 10px;
+  line-height: 1.4;
+  text-align: center;
+}

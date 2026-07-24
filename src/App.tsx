@@ -13,7 +13,9 @@ import { Icon } from './components/Icon';
 import { Modal } from './components/Modal';
 import { Toolbar } from './components/Toolbar';
 import { createId, distance, normalizeRect, pointsToPath, translateObject } from './lib/geometry';
-import { prettyMath, resolveNumber } from './lib/math';
+import { resolveNumber } from './lib/math';
+import { MathPreview, StructuredMath } from './components/StructuredMath';
+import { measureMathExpression } from './lib/math-layout';
 import { captureSvgAsPng, composeFourCaptures, copySvgPngToClipboard, createPngPreviewWindow, openSvgAsPng, showPngInPreview, type PngCapture } from './lib/screenshot';
 import {
   downloadJson,
@@ -341,8 +343,10 @@ function getObjectBounds(object: GraphicObject): { x: number; y: number; width: 
       return { x: object.cx - object.rx, y: object.cy - object.ry, width: object.rx * 2, height: object.ry * 2 };
     case 'text':
       return { x: object.x - 4, y: object.y - object.fontSize, width: Math.max(30, object.text.length * object.fontSize * 0.62), height: object.fontSize * 1.3 };
-    case 'math':
-      return { x: object.x - 4, y: object.y - object.fontSize, width: Math.max(40, prettyMath(object.expression).length * object.fontSize * 0.62), height: object.fontSize * 1.3 };
+    case 'math': {
+      const measured = measureMathExpression(object.expression, object.fontSize);
+      return { x: object.x - 4, y: object.y - measured.baseline - 4, width: Math.max(40, measured.width + 8), height: Math.max(object.fontSize * 1.1, measured.height + 8) };
+    }
   }
 }
 
@@ -1965,7 +1969,7 @@ function App() {
         case 'ellipse': return <ellipse cx={object.cx} cy={object.cy} rx={object.rx} ry={object.ry} {...common} transform={transform} />;
         case 'polygon': return <polygon points={object.points.map((point) => `${point.x},${point.y}`).join(' ')} {...common} transform={transform} />;
         case 'text': return <text x={object.x} y={object.y} fontSize={object.fontSize} fontWeight={object.fontWeight} textAnchor={object.align} fill={object.stroke} stroke="none" opacity={object.opacity}>{object.text}</text>;
-        case 'math': return <text x={object.x} y={object.y} fontSize={object.fontSize} fontFamily="Georgia, 'Times New Roman', serif" fontStyle="italic" fill={object.stroke} stroke="none" opacity={object.opacity}>{prettyMath(object.expression)}</text>;
+        case 'math': return <StructuredMath source={object.expression} x={object.x} y={object.y} fontSize={object.fontSize} color={object.stroke} opacity={object.opacity} />;
         case 'array': return <g opacity={object.opacity} transform={transform}>{renderArray(object)}</g>;
         case 'segment': return <g {...common} fill="none">{renderMeasure(object)}</g>;
       }
@@ -2840,7 +2844,7 @@ function ExpressionPanel({ project, onAddVariable, onUpdateVariable, onDeleteVar
       <div className="subheading"><span>変数フェーダー</span><button type="button" onClick={onAddVariable}>＋追加</button></div>
       <div className="variable-list">{project.variables.map((variable) => <article className="variable-card" key={variable.id}><div className="variable-head"><input className="variable-name" aria-label="変数名" value={variable.name} onChange={(event) => onUpdateVariable(variable.id, { name: sanitizeExpression(event.target.value).replace(/[^A-Za-z_]/g, '').slice(0, 8) })} /><output>{variable.value}</output><button type="button" className="mini-delete" onClick={() => onDeleteVariable(variable.id)}>×</button></div><input type="range" min={variable.min} max={variable.max} step={variable.step} value={variable.value} onPointerDown={onStartSliderHistory} onChange={(event) => onUpdateVariable(variable.id, { value: Number(event.target.value) }, false)} /><div className="variable-range"><label>最小<AsciiNumber value={variable.min} onChange={(min) => onUpdateVariable(variable.id, { min })} /></label><label>刻み<AsciiNumber value={variable.step} min={0.001} step={0.001} onChange={(step) => onUpdateVariable(variable.id, { step: Math.max(0.001, step) })} /></label><label>最大<AsciiNumber value={variable.max} onChange={(max) => onUpdateVariable(variable.id, { max })} /></label></div></article>)}</div>
       <div className="subheading"><span>数式</span><button type="button" onClick={onAddExpression}>＋追加</button></div>
-      <div className="expression-list">{project.expressions.map((expression) => <article className="expression-card" key={expression.id}><div className="expression-head"><input type="checkbox" checked={expression.visible} onChange={(event) => onUpdateExpression(expression.id, { visible: event.target.checked })} aria-label="表示" /><input className="expression-label" value={expression.label} onChange={(event) => onUpdateExpression(expression.id, { label: event.target.value })} /><button type="button" className="mini-delete" onClick={() => onDeleteExpression(expression.id)}>×</button></div><input className="expression-source" placeholder="例: y=a*x^2" value={expression.source} onChange={(event) => onUpdateExpression(expression.id, { source: sanitizeExpression(event.target.value) }, false)} onBlur={(event) => onUpdateExpression(expression.id, { source: sanitizeExpression(event.target.value) })} /><div className="expression-preview">{prettyMath(expression.source) || '数式を入力'}</div><div className="expression-actions"><button type="button" onClick={() => onEditDetailed(expression)}>詳細入力</button><button type="button" onClick={() => onPlace(expression)} disabled={!expression.source.trim()}>配置</button></div></article>)}</div>
+      <div className="expression-list">{project.expressions.map((expression) => <article className="expression-card" key={expression.id}><div className="expression-head"><input type="checkbox" checked={expression.visible} onChange={(event) => onUpdateExpression(expression.id, { visible: event.target.checked })} aria-label="表示" /><input className="expression-label" value={expression.label} onChange={(event) => onUpdateExpression(expression.id, { label: event.target.value })} /><button type="button" className="mini-delete" onClick={() => onDeleteExpression(expression.id)}>×</button></div><input className="expression-source" placeholder="例: y=a*x^2" value={expression.source} onChange={(event) => onUpdateExpression(expression.id, { source: sanitizeExpression(event.target.value) }, false)} onBlur={(event) => onUpdateExpression(expression.id, { source: sanitizeExpression(event.target.value) })} /><div className="expression-preview">{expression.source.trim() ? <MathPreview source={expression.source} fontSize={22} className="expression-preview-svg" minWidth={120} /> : <span>数式を入力</span>}</div><div className="expression-actions"><button type="button" onClick={() => onEditDetailed(expression)}>詳細入力</button><button type="button" onClick={() => onPlace(expression)} disabled={!expression.source.trim()}>配置</button></div></article>)}</div>
       <div className="function-placeholder"><Icon name="function" size={20} /><span>関数グラフ描画はv3で有効になります。</span></div>
     </>
   );
@@ -2863,17 +2867,57 @@ function TextEntry({ initial, onSubmit, onCancel }: { initial: string; onSubmit:
 function MathEditor({ initial, onSubmit, onCancel }: { initial: string; onSubmit: (value: string) => void; onCancel: () => void }) {
   const [value, setValue] = useState(sanitizeExpression(initial));
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const previewMeasure = measureMathExpression(value, 38);
   const insert = (token: string, caretOffset = token.length) => {
     const textarea = textareaRef.current;
-    if (!textarea) { setValue((current) => current + token); return; }
+    if (!textarea) {
+      setValue((current) => current + token);
+      return;
+    }
     const start = textarea.selectionStart;
     const end = textarea.selectionEnd;
     const next = value.slice(0, start) + token + value.slice(end);
     setValue(next);
-    requestAnimationFrame(() => { textarea.focus(); textarea.setSelectionRange(start + caretOffset, start + caretOffset); });
+    requestAnimationFrame(() => {
+      textarea.focus();
+      textarea.setSelectionRange(start + caretOffset, start + caretOffset);
+    });
   };
-  const palette = [{ label: '分数', token: '()/()', offset: 1 }, { label: '平方根', token: 'sqrt()', offset: 5 }, { label: '累乗', token: '^()', offset: 2 }, { label: '下付き', token: '_()', offset: 2 }, { label: 'π', token: 'pi', offset: 2 }, { label: '絶対値', token: 'abs()', offset: 4 }, { label: 'Σ', token: 'sum()', offset: 4 }, { label: '∫', token: 'int()', offset: 4 }, { label: '行列', token: 'matrix([,],[,])', offset: 8 }];
-  return <form onSubmit={(event) => { event.preventDefault(); onSubmit(value); }} className="math-editor"><div className="math-palette">{palette.map((item) => <button type="button" key={item.label} onClick={() => insert(item.token, item.offset)}>{item.label}</button>)}</div><div className="math-workspace"><textarea ref={textareaRef} autoFocus value={value} onChange={(event) => setValue(sanitizeExpression(event.target.value))} placeholder="例: y=a*x^2 / sqrt(2)" /><div className="math-live-preview"><span>プレビュー</span><strong>{prettyMath(value) || '—'}</strong></div></div><p className="math-help">半角英数と数式記号で入力します。構造入力用の記号パレットと軽量プレビューを実装しています。</p><div className="modal-actions"><button type="button" onClick={onCancel}>キャンセル</button><button type="submit" className="primary-button" disabled={!value.trim()}>確定</button></div></form>;
+  const palette = [
+    { label: '分数', token: 'frac(,)', offset: 5 },
+    { label: '平方根', token: 'sqrt()', offset: 5 },
+    { label: '累乗', token: '^()', offset: 2 },
+    { label: '下付き', token: '_()', offset: 2 },
+    { label: 'π', token: 'pi', offset: 2 },
+    { label: '絶対値', token: 'abs()', offset: 4 },
+    { label: 'Σ', token: 'sum()', offset: 4 },
+    { label: '∫', token: 'int()', offset: 4 },
+    { label: '複分数例', token: 'sqrt(b*x^2)/(a-1)/x', offset: 19 },
+  ];
+  return (
+    <form onSubmit={(event) => { event.preventDefault(); onSubmit(value); }} className="math-editor">
+      <div className="math-palette">
+        {palette.map((item) => <button type="button" key={item.label} onClick={() => insert(item.token, item.offset)}>{item.label}</button>)}
+      </div>
+      <div className="math-workspace">
+        <textarea
+          ref={textareaRef}
+          autoFocus
+          value={value}
+          onChange={(event) => setValue(sanitizeExpression(event.target.value))}
+          placeholder="例: sqrt(b*x^2)/(a-1)/x"
+          aria-describedby="math-syntax-help"
+        />
+        <div className={`math-live-preview ${previewMeasure.valid ? '' : 'has-warning'}`}>
+          <span>構造プレビュー</span>
+          {value.trim() ? <MathPreview source={value} fontSize={38} className="math-preview-svg" minWidth={180} /> : <strong>—</strong>}
+          {!previewMeasure.valid && <small>{previewMeasure.error}</small>}
+        </div>
+      </div>
+      <p className="math-help" id="math-syntax-help">半角英数と数式記号で入力します。/ は分数、^ は上付き、_ は下付きとして組版されます。分数を重ねると複分数になります。</p>
+      <div className="modal-actions"><button type="button" onClick={onCancel}>キャンセル</button><button type="submit" className="primary-button" disabled={!value.trim()}>確定</button></div>
+    </form>
+  );
 }
 
 function StepButtons({ value, min, max, step = 1, disabled = false, onChange }: { value: number; min: number; max: number; step?: number; disabled?: boolean; onChange: (value: number) => void }) {
