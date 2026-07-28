@@ -1,6 +1,6 @@
 <!doctype html>
 <!-- 単体起動版: CSS・JavaScriptを内包し、通信なしで動作します。 -->
-<html lang="ja"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover"><meta name="theme-color" content="#4f46e5"><meta name="description" content="Graphanta - 数学的な思考と表現を支える図・グラフ作成アプリ"><title>Graphanta v0.3.0-alpha.1</title><style>:root {
+<html lang="ja"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover"><meta name="theme-color" content="#4f46e5"><meta name="description" content="Graphanta - 数学的な思考と表現を支える図・グラフ作成アプリ"><title>Graphanta v0.3.0-alpha.2</title><style>:root {
   font-family: Inter, "Noto Sans JP", "Yu Gothic UI", "Yu Gothic", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
   color: #20273b;
   background: #edf0f8;
@@ -264,6 +264,12 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   box-shadow: 0 8px 24px rgba(42, 48, 77, 0.08);
   transition: width .18s ease, box-shadow .18s ease;
 }
+.panel-heading-wrap {
+  position: relative;
+  z-index: 8;
+  min-width: 0;
+  min-height: 0;
+}
 .side-panel.collapsed {
   width: 44px;
   grid-template-rows: minmax(72px, 1fr);
@@ -285,6 +291,54 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   font-weight: 760;
   letter-spacing: .01em;
 }
+.panel-heading-wrap > .panel-heading { height: 100%; }
+.tweak-hint-button {
+  position: absolute;
+  z-index: 3;
+  top: 50%;
+  left: 82px;
+  display: grid;
+  place-items: center;
+  width: 27px;
+  height: 27px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 50%;
+  color: #756d91;
+  background: transparent;
+  cursor: pointer;
+  transform: translateY(-50%);
+}
+.tweak-hint-button:hover,
+.tweak-hint-button.is-open {
+  color: #9a6a0a;
+  border-color: #ead28d;
+  background: #fff8d9;
+  box-shadow: 0 4px 12px rgba(126, 92, 8, .14);
+}
+.tweak-hint-button:active { transform: translateY(calc(-50% + 1px)) scale(.93); }
+.tweak-hint-popover {
+  position: absolute;
+  z-index: 20;
+  top: 37px;
+  left: 9px;
+  right: 9px;
+  padding: 11px 12px;
+  border: 1px solid rgba(209, 184, 102, .65);
+  border-radius: 11px;
+  color: #5c5136;
+  background: rgba(255, 252, 235, .98);
+  box-shadow: 0 14px 34px rgba(63, 52, 19, .18);
+  backdrop-filter: blur(12px);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.65;
+  animation: tweak-hint-rise .18s cubic-bezier(.2,.85,.25,1) both;
+}
+@keyframes tweak-hint-rise {
+  from { opacity: 0; transform: translateY(7px) scale(.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
 .panel-short { display: none; }
 .collapsed .panel-heading {
   height: 100%;
@@ -297,6 +351,8 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .collapsed .panel-title { display: none; }
 .collapsed .panel-short { display: block; color: var(--primary-strong); font-size: 18px; font-weight: 850; }
 .collapsed .panel-heading svg { transform: rotate(-90deg); }
+.collapsed .tweak-hint-button,
+.collapsed .tweak-hint-popover { display: none; }
 .panel-content { min-height: 0; overflow-y: auto; padding: 12px; scrollbar-width: thin; }
 .panel-hint, .binding-note { margin: 0 0 13px; color: var(--muted); font-size: 12px; line-height: 1.65; }
 .binding-note code { color: var(--primary-strong); font-weight: 750; }
@@ -490,6 +546,52 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   .side-panels { gap: 5px; }
   .panel-content { padding: 9px; }
   .field { grid-template-columns: 70px minmax(0,1fr); }
+}
+
+/* 縦長画面ではツウィークとfを横に圧縮せず、下段へ縦に積む。 */
+@media (max-aspect-ratio: 4 / 5) {
+  .workspace.toolbar-right.panels-right,
+  .workspace.toolbar-right.panels-left {
+    grid-template-columns: minmax(0, 1fr) 56px;
+    grid-template-rows: minmax(270px, 1.08fr) minmax(300px, .92fr);
+    grid-template-areas:
+      "plot tools"
+      "panels panels";
+  }
+  .workspace.toolbar-left.panels-right,
+  .workspace.toolbar-left.panels-left {
+    grid-template-columns: 56px minmax(0, 1fr);
+    grid-template-rows: minmax(270px, 1.08fr) minmax(300px, .92fr);
+    grid-template-areas:
+      "tools plot"
+      "panels panels";
+  }
+  .side-panels {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 6px;
+  }
+  .side-panel,
+  .side-panel.collapsed {
+    width: 100%;
+    max-width: 100%;
+    justify-self: stretch;
+  }
+  .side-panel.collapsed {
+    height: 44px;
+    align-self: start;
+    grid-template-rows: 44px;
+  }
+  .collapsed .panel-heading {
+    height: 44px;
+    flex-direction: row;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 0 13px;
+  }
+  .collapsed .panel-title { display: block; }
+  .collapsed .panel-short { display: none; }
+  .collapsed .panel-heading svg { transform: rotate(180deg); }
 }
 
 /* alpha.4 grouped tools and parameter editors */
@@ -1008,6 +1110,53 @@ const TOOL_CONTEXT_GROUPS = [
 ];
 function groupForTool(tool) {
     return TOOL_CONTEXT_GROUPS.find((group) => group.includes(tool)) ?? null;
+}
+function tweakHintFor(activeTool, selectedObjects, polygonCount) {
+    if (activeTool === 'select') {
+        if (selectedObjects.length > 1)
+            return 'Shift＋クリックで選択を追加・解除できます。Ctrl＋Gでグループ化、Ctrl＋Shift＋Gで解除できます。';
+        const selected = selectedObjects[0];
+        if (selected?.type === 'text')
+            return '文字をダブルクリックすると、内容を編集するウィンドウが開きます。選択枠のハンドルでは大きさを調整できます。';
+        if (selected?.type === 'math')
+            return '数式をダブルクリックすると、構造プレビュー付きの編集ウィンドウが開きます。';
+        if (selected?.type === 'polygon')
+            return '頂点をドラッグして形を調整できます。辺の中央の印から頂点を追加し、Shift＋頂点クリックで削除できます。';
+        if (selected)
+            return '四隅のハンドルで大きさを変更できます。Shiftを押しながら操作すると縦横比を保ちます。';
+        return 'クリックで選択、ドラッグで範囲選択します。Shiftを押すと複数選択できます。吸着設定は各描画ツールと共通です。';
+    }
+    if (activeTool === 'pan')
+        return 'ドラッグで表示位置を移動します。右ドラッグまたは2本指ドラッグでも一時的にスクロールできます。';
+    if (activeTool === 'zoom')
+        return 'クリックで拡大、Shift＋クリックで縮小します。範囲を囲むと、その範囲を画面内へ最大表示します。';
+    if (activeTool === 'pen')
+        return '描画中は選択枠を表示しません。吸着の2項目は「選択」ツウィークと同じ設定を共有します。';
+    if (activeTool === 'line')
+        return '始点から終点までドラッグします。Shiftを押すと45度単位の方向へそろえられます。';
+    if (activeTool === 'arrow')
+        return '始点から終点までドラッグします。Shiftを押すと45度単位の方向へそろえられます。';
+    if (activeTool === 'rectangle')
+        return '対角の2点をドラッグして作成します。Shiftを押すと正方形になります。';
+    if (activeTool === 'ellipse')
+        return '中心から外側へドラッグして作成します。Shiftを押すと円になります。';
+    if (activeTool === 'polygon')
+        return polygonCount > 0
+            ? `${polygonCount}点を指定中です。3点以上で作成でき、Enterでも確定、Escで中止できます。`
+            : '頂点にしたい位置を順にクリックします。3点以上指定すると「○点で作成」から確定できます。';
+    if (activeTool === 'text')
+        return '配置位置をクリックして文字を入力します。作成後は「選択」ツールでダブルクリックすると再編集できます。';
+    if (activeTool === 'math')
+        return '配置位置をクリックして数式を入力します。/、^、_、sqrt()などを構造的に組版します。作成後はダブルクリックで再編集できます。';
+    if (activeTool === 'array')
+        return '選択中に変更した色・大きさ・不透明度は、次の配置に引き継がれます。行数と列数には数式も使用できます。';
+    if (activeTool === 'ball' || activeTool === 'person')
+        return 'クリックで1個ずつ配置します。ドラッグすると大きさも同時に調整でき、選択中の設定は次の配置へ引き継がれます。';
+    if (activeTool === 'bundle')
+        return '縦：横＝1：√2の比率を保って配置します。色・大きさ・不透明度・数値は次の配置へ引き継がれます。';
+    if (activeTool === 'segment')
+        return '数直線・テープ図・線分図を切り替えられます。目盛りの数値には変数や式を指定できます。';
+    return '関数グラフ描画は将来版で有効になります。現在は数式の登録と配置をfウィンドウから利用できます。';
 }
 const MIN_DRAW_SIZE = 4;
 const TWO_PI = Math.PI * 2;
@@ -1594,10 +1743,12 @@ function App() {
     const [screenshotMenuOpen, setScreenshotMenuOpen] = (0, react_1.useState)(false);
     const [fourShotCaptures, setFourShotCaptures] = (0, react_1.useState)([]);
     const [screenshotBusy, setScreenshotBusy] = (0, react_1.useState)(false);
+    const [tweakHintOpen, setTweakHintOpen] = (0, react_1.useState)(false);
     const plotViewportRef = (0, react_1.useRef)(null);
     const activePointers = (0, react_1.useRef)(new Map());
     const touchGesture = (0, react_1.useRef)(null);
     const centeredInitialView = (0, react_1.useRef)(false);
+    const lastSelectPress = (0, react_1.useRef)(null);
     const selectedId = selectedIds.at(-1) ?? null;
     const setSelectedId = (0, react_1.useCallback)((value) => setSelectedIds(value ? [value] : []), []);
     const selectedObjects = (0, react_1.useMemo)(() => project.objects.filter((object) => selectedIds.includes(object.id)), [project.objects, selectedIds]);
@@ -1622,6 +1773,7 @@ function App() {
     const resolvedObjects = (0, react_1.useMemo)(() => project.objects.filter((object) => !object.hidden).map(resolveObject), [project.objects, resolveObject]);
     const selectedResolvedObject = (0, react_1.useMemo)(() => selectedObject ? resolveObject(selectedObject) : null, [selectedObject, resolveObject]);
     const selectedResolvedObjects = (0, react_1.useMemo)(() => selectedObjects.map(resolveObject), [selectedObjects, resolveObject]);
+    const tweakHint = (0, react_1.useMemo)(() => tweakHintFor(activeTool, selectedObjects, polygonPoints.length), [activeTool, polygonPoints.length, selectedObjects]);
     const snapGeometry = (0, react_1.useMemo)(() => {
         const entries = resolvedObjects.map((object) => ({ objectId: object.id, ...getSnapGeometry(object) }));
         const intersections = [];
@@ -1814,6 +1966,14 @@ function App() {
         setStatus('重なり順を変更しました');
     }, [mutateProject, selectedIds]);
     (0, react_1.useEffect)(() => (0, storage_1.saveSettingsLocal)(settings), [settings]);
+    (0, react_1.useEffect)(() => setTweakHintOpen(false), [activeTool, selectedIds, panelCollapsed.tweak]);
+    (0, react_1.useEffect)(() => {
+        if (!tweakHintOpen)
+            return;
+        const dismiss = () => setTweakHintOpen(false);
+        document.addEventListener('pointerdown', dismiss, { once: true });
+        return () => document.removeEventListener('pointerdown', dismiss);
+    }, [tweakHintOpen]);
     (0, react_1.useEffect)(() => {
         const blockBrowserContextMenu = (event) => {
             const target = event.target;
@@ -2155,6 +2315,8 @@ function App() {
         const resizeObjectId = resizeElement?.getAttribute('data-resize-object-id') ?? null;
         const objectElement = target.closest('[data-object-id]');
         const objectId = objectElement?.getAttribute('data-object-id') ?? null;
+        if (activeTool !== 'select')
+            lastSelectPress.current = null;
         if (activeTool === 'pan') {
             event.currentTarget.setPointerCapture(event.pointerId);
             setInteraction({ kind: 'pan', clientStart: { x: event.clientX, y: event.clientY }, originalView: view });
@@ -2238,6 +2400,7 @@ function App() {
         }
         if (activeTool === 'select') {
             if (!objectId) {
+                lastSelectPress.current = null;
                 const start = rawWorldPoint(event.clientX, event.clientY);
                 if (!event.shiftKey)
                     setSelectedIds([]);
@@ -2249,6 +2412,23 @@ function App() {
             const object = project.objects.find((item) => item.id === objectId);
             if (!object)
                 return;
+            const now = Date.now();
+            const previousPress = lastSelectPress.current;
+            const isDoublePress = previousPress?.objectId === object.id
+                && now - previousPress.at <= 460
+                && Math.hypot(event.clientX - previousPress.clientX, event.clientY - previousPress.clientY) <= 12;
+            lastSelectPress.current = isDoublePress ? null : { objectId: object.id, at: now, clientX: event.clientX, clientY: event.clientY };
+            if (isDoublePress && !object.locked && (object.type === 'text' || object.type === 'math')) {
+                setInteraction(null);
+                setSelectedId(object.id);
+                if (object.type === 'text') {
+                    setModal({ kind: 'text', point: { x: object.x, y: object.y }, value: object.text, objectId: object.id });
+                }
+                else {
+                    setModal({ kind: 'math', point: { x: object.x, y: object.y }, value: object.expression, objectId: object.id });
+                }
+                return;
+            }
             const clickedIds = selectionIdsForObject(project.objects, objectId);
             if (event.shiftKey) {
                 setSelectedIds((current) => {
@@ -2289,6 +2469,8 @@ function App() {
             return;
         }
         if (activeTool === 'polygon') {
+            if (polygonPoints.length === 0)
+                setSelectedIds([]);
             setPolygonPoints((points) => [...points, point]);
             setStatus('多角形: 頂点を追加中。Enterで確定、Escで中止');
             return;
@@ -2390,6 +2572,8 @@ function App() {
             }
         }
         if (interaction.kind === 'move') {
+            if ((0, geometry_1.distance)(point, interaction.start) > 6 / Math.max(view.zoom, 0.25))
+                lastSelectPress.current = null;
             gestureChanged.current = true;
             const dx = point.x - interaction.start.x;
             const dy = point.y - interaction.start.y;
@@ -2846,11 +3030,29 @@ function App() {
                 }
             }
         })();
-        return React.createElement("g", { key: sourceObject.id, "data-object-id": sourceObject.id, className: sourceObject.locked ? 'object-locked' : '' },
+        const editOnDoubleClick = (event) => {
+            if (activeTool !== 'select' || sourceObject.locked)
+                return;
+            if (sourceObject.type !== 'text' && sourceObject.type !== 'math')
+                return;
+            event.preventDefault();
+            event.stopPropagation();
+            setInteraction(null);
+            setSelectedId(sourceObject.id);
+            if (sourceObject.type === 'text') {
+                setModal({ kind: 'text', point: { x: sourceObject.x, y: sourceObject.y }, value: sourceObject.text, objectId: sourceObject.id });
+            }
+            else {
+                setModal({ kind: 'math', point: { x: sourceObject.x, y: sourceObject.y }, value: sourceObject.expression, objectId: sourceObject.id });
+            }
+        };
+        return React.createElement("g", { key: sourceObject.id, "data-object-id": sourceObject.id, className: sourceObject.locked ? 'object-locked' : '', onDoubleClick: editOnDoubleClick },
             content,
             hit);
     }
     function selectionOverlay() {
+        if (interaction?.kind === 'draw' && interaction.tool === 'pen')
+            return null;
         if (!selectedResolvedObjects.length)
             return null;
         const pad = 8 / view.zoom;
@@ -3208,17 +3410,22 @@ function App() {
             settings.toolbarSide === 'right' && React.createElement(Toolbar_1.Toolbar, { tools: visibleTools, activeTool: activeTool, side: "right", onChange: chooseTool }),
             React.createElement("aside", { className: "side-panels" },
                 React.createElement("section", { className: `side-panel tweak-panel ${panelCollapsed.tweak ? 'collapsed' : ''}` },
-                    React.createElement("button", { type: "button", className: "panel-heading", "aria-expanded": !panelCollapsed.tweak, title: panelCollapsed.tweak ? 'ツウィークを開く' : 'ツウィークを畳む', onClick: () => setPanelCollapsed((current) => ({ ...current, tweak: !current.tweak })) },
-                        React.createElement("span", { className: "panel-title" }, "\u30C4\u30A6\u30A3\u30FC\u30AF"),
-                        React.createElement("span", { className: "panel-short" }, "T"),
-                        React.createElement(Icon_1.Icon, { name: "chevron", size: 18 })),
+                    React.createElement("div", { className: "panel-heading-wrap", onMouseLeave: () => setTweakHintOpen(false) },
+                        React.createElement("button", { type: "button", className: "panel-heading", "aria-expanded": !panelCollapsed.tweak, title: panelCollapsed.tweak ? 'ツウィークを開く' : 'ツウィークを畳む', onClick: () => setPanelCollapsed((current) => ({ ...current, tweak: !current.tweak })) },
+                            React.createElement("span", { className: "panel-title" }, "\u30C4\u30A6\u30A3\u30FC\u30AF"),
+                            React.createElement("span", { className: "panel-short" }, "T"),
+                            React.createElement(Icon_1.Icon, { name: "chevron", size: 18 })),
+                        !panelCollapsed.tweak && React.createElement("button", { type: "button", className: `tweak-hint-button ${tweakHintOpen ? 'is-open' : ''}`, "aria-label": "\u3053\u306E\u30C4\u30FC\u30EB\u306E\u30D2\u30F3\u30C8", "aria-expanded": tweakHintOpen, title: "\u3053\u306E\u30C4\u30FC\u30EB\u306E\u30D2\u30F3\u30C8", onPointerDown: (event) => event.stopPropagation(), onClick: (event) => { event.stopPropagation(); setTweakHintOpen((open) => !open); } },
+                            React.createElement(Icon_1.Icon, { name: "hint", size: 16 })),
+                        tweakHintOpen && !panelCollapsed.tweak && React.createElement("div", { className: "tweak-hint-popover", role: "status" }, tweakHint)),
                     React.createElement("div", { className: "panel-content tweak-content", "aria-hidden": panelCollapsed.tweak },
                         React.createElement(TweakPanel, { project: project, activeTool: activeTool, selected: selectedObject, selectedObjects: selectedObjects, resolvedSelected: selectedResolvedObject, presets: presets, coordinateUnitPx: coordinateUnitPx, worldToCoordinate: worldToCoordinate, coordinateToWorld: coordinateToWorld, onPresetChange: (tool, patch) => setPresets((current) => ({ ...current, [tool]: { ...current[tool], ...patch } })), onCanvasChange: (patch) => mutateProject((current) => ({ ...current, canvas: { ...current.canvas, ...patch } })), onObjectChange: (updater) => selectedObject && updateObject(selectedObject.id, updater), onDelete: deleteSelected, onDuplicate: duplicateSelected, onGroup: groupSelected, onUngroup: ungroupSelected, onAlign: alignSelected, onArrange: arrangeSelected, onFinalizePolygon: finalizePolygon, polygonCount: polygonPoints.length, onCreateFromCoordinates: addObjectFromCoordinates }))),
                 React.createElement("section", { className: `side-panel expression-panel ${panelCollapsed.expressions ? 'collapsed' : ''}` },
-                    React.createElement("button", { type: "button", className: "panel-heading", "aria-expanded": !panelCollapsed.expressions, title: panelCollapsed.expressions ? 'fウィンドウを開く' : 'fウィンドウを畳む', onClick: () => setPanelCollapsed((current) => ({ ...current, expressions: !current.expressions })) },
-                        React.createElement("span", { className: "panel-title" }, "f\u3000\u6570\u5F0F\u30FB\u5909\u6570"),
-                        React.createElement("span", { className: "panel-short" }, "f"),
-                        React.createElement(Icon_1.Icon, { name: "chevron", size: 18 })),
+                    React.createElement("div", { className: "panel-heading-wrap" },
+                        React.createElement("button", { type: "button", className: "panel-heading", "aria-expanded": !panelCollapsed.expressions, title: panelCollapsed.expressions ? 'fウィンドウを開く' : 'fウィンドウを畳む', onClick: () => setPanelCollapsed((current) => ({ ...current, expressions: !current.expressions })) },
+                            React.createElement("span", { className: "panel-title" }, "f\u3000\u6570\u5F0F\u30FB\u5909\u6570"),
+                            React.createElement("span", { className: "panel-short" }, "f"),
+                            React.createElement(Icon_1.Icon, { name: "chevron", size: 18 }))),
                     React.createElement("div", { className: "panel-content", "aria-hidden": panelCollapsed.expressions },
                         React.createElement(ExpressionPanel, { project: project, onAddVariable: addVariable, onUpdateVariable: updateVariable, onDeleteVariable: (id) => mutateProject((current) => ({ ...current, variables: current.variables.filter((variable) => variable.id !== id) })), onAddExpression: addExpression, onUpdateExpression: updateExpression, onDeleteExpression: (id) => mutateProject((current) => ({ ...current, expressions: current.expressions.filter((expression) => expression.id !== id) })), onEditDetailed: (expression) => setModal({ kind: 'math', point: { x: 0, y: 0 }, value: expression.source, expressionId: expression.id }), onPlace: placeExpression, onStartSliderHistory: () => commitHistory(project) }))))),
         presentation && React.createElement("button", { className: "exit-presentation", type: "button", onClick: togglePresentation }, "\u767A\u8868\u30E2\u30FC\u30C9\u3092\u7D42\u4E86"),
@@ -3226,13 +3433,25 @@ function App() {
         React.createElement("input", { ref: settingsInputRef, type: "file", accept: ".json,.graphanta-settings.json,application/json", hidden: true, onChange: loadSettingsFile }),
         modal?.kind === 'settings' && React.createElement(Modal_1.Modal, { title: "\u74B0\u5883\u8A2D\u5B9A", wide: true, onClose: () => setModal(null) },
             React.createElement(SettingsEditor, { settings: settings, onChange: (next) => setSettings(normalizeSettings(next)), onSave: () => (0, storage_1.downloadJson)('graphanta-settings.json', settings), onLoad: () => settingsInputRef.current?.click(), onReset: () => setSettings((0, defaults_1.createDefaultSettings)()) })),
-        modal?.kind === 'text' && React.createElement(Modal_1.Modal, { title: "\u6587\u5B57\u3092\u8FFD\u52A0", onClose: () => setModal(null) },
-            React.createElement(TextEntry, { initial: modal.value, onSubmit: (value) => { addText(value, modal.point); setModal(null); }, onCancel: () => setModal(null) })),
-        modal?.kind === 'math' && React.createElement(Modal_1.Modal, { title: "\u6570\u5F0F\u30A6\u30A3\u30F3\u30C9\u30A6", wide: true, onClose: () => setModal(null) },
-            React.createElement(MathEditor, { initial: modal.value, onSubmit: (value) => { if (modal.expressionId)
-                    updateExpression(modal.expressionId, { source: sanitizeExpression(value) });
-                else
-                    addMath(value, modal.point); setModal(null); }, onCancel: () => setModal(null) })),
+        modal?.kind === 'text' && React.createElement(Modal_1.Modal, { title: modal.objectId ? '文字を編集' : '文字を追加', onClose: () => setModal(null) },
+            React.createElement(TextEntry, { initial: modal.value, submitLabel: modal.objectId ? '更新' : '追加', onSubmit: (value) => {
+                    if (modal.objectId)
+                        updateObject(modal.objectId, (object) => object.type === 'text' ? { ...object, text: value.trim() } : object);
+                    else
+                        addText(value, modal.point);
+                    setModal(null);
+                }, onCancel: () => setModal(null) })),
+        modal?.kind === 'math' && React.createElement(Modal_1.Modal, { title: modal.objectId ? '数式を編集' : '数式ウィンドウ', wide: true, onClose: () => setModal(null) },
+            React.createElement(MathEditor, { initial: modal.value, onSubmit: (value) => {
+                    const expression = sanitizeExpression(value);
+                    if (modal.objectId)
+                        updateObject(modal.objectId, (object) => object.type === 'math' ? { ...object, expression } : object);
+                    else if (modal.expressionId)
+                        updateExpression(modal.expressionId, { source: expression });
+                    else
+                        addMath(expression, modal.point);
+                    setModal(null);
+                }, onCancel: () => setModal(null) })),
         modal?.kind === 'about' && React.createElement(Modal_1.Modal, { title: "Graphanta", onClose: () => setModal(null) },
             React.createElement("div", { className: "about-box" },
                 React.createElement("div", { className: "about-logo" }, "G"),
@@ -3245,7 +3464,12 @@ function App() {
 function TweakPanel(props) {
     const { project, activeTool, selected, selectedObjects, resolvedSelected, presets, coordinateUnitPx, worldToCoordinate, coordinateToWorld, onPresetChange, onCanvasChange, onObjectChange, onDelete, onDuplicate, onGroup, onUngroup, onAlign, onArrange, onFinalizePolygon, polygonCount, onCreateFromCoordinates } = props;
     const navigationMode = activeTool === 'select' || activeTool === 'pan' || activeTool === 'zoom';
-    const showSelected = selectedObjects.length === 1 && Boolean(selected) && activeTool !== 'pan' && activeTool !== 'zoom' && (activeTool === 'select' || (selected ? toolForObject(selected) === activeTool : false));
+    const showSelected = selectedObjects.length === 1
+        && Boolean(selected)
+        && activeTool !== 'pan'
+        && activeTool !== 'zoom'
+        && !(activeTool === 'polygon' && polygonCount > 0)
+        && (activeTool === 'select' || (selected ? toolForObject(selected) === activeTool : false));
     const patchObject = (changes) => onObjectChange((object) => {
         if (object.type === 'array' && 'symbolSize' in changes && typeof changes.symbolSize === 'number'
             && (object.symbol === 'ball' || object.symbol === 'person' || object.symbol === 'bundle')) {
@@ -3307,7 +3531,9 @@ function TweakPanel(props) {
     if (activeTool === 'pen')
         return React.createElement(React.Fragment, null,
             React.createElement(PresetHeader, { label: "\u30D5\u30EA\u30FC\u30CF\u30F3\u30C9" }),
-            React.createElement(LineStyleEditor, { value: presets.pen, onChange: (patch) => onPresetChange('pen', patch) }));
+            React.createElement(LineStyleEditor, { value: presets.pen, onChange: (patch) => onPresetChange('pen', patch) }),
+            React.createElement(Toggle, { label: "\u5438\u7740", checked: project.canvas.snapGrid, onChange: (checked) => onCanvasChange({ snapGrid: checked }) }),
+            React.createElement(Toggle, { label: "\u70B9\u30FB\u4EA4\u70B9\u30FB\u8FBA\u3078\u5438\u7740", checked: project.canvas.snapPoints, onChange: (checked) => onCanvasChange({ snapPoints: checked }) }));
     if (activeTool === 'line' || activeTool === 'arrow') {
         const preset = presets[activeTool];
         return (React.createElement(React.Fragment, null,
@@ -3341,10 +3567,9 @@ function TweakPanel(props) {
         return React.createElement(React.Fragment, null,
             React.createElement(PresetHeader, { label: "\u591A\u89D2\u5F62" }),
             React.createElement(ShapeStyleEditor, { value: presets.polygon, onChange: (patch) => onPresetChange('polygon', patch) }),
-            polygonCount > 0 && React.createElement("button", { type: "button", className: "primary-button full", onClick: onFinalizePolygon, disabled: polygonCount < 3 },
-                "\u591A\u89D2\u5F62\u3092\u78BA\u5B9A\uFF08",
+            polygonCount > 0 && React.createElement("button", { type: "button", className: "primary-button full polygon-create-button", onClick: onFinalizePolygon, disabled: polygonCount < 3 },
                 polygonCount,
-                "\u70B9\uFF09"));
+                "\u70B9\u3067\u4F5C\u6210"));
     if (activeTool === 'text')
         return React.createElement(React.Fragment, null,
             React.createElement(PresetHeader, { label: "\u6587\u5B57" }),
@@ -3361,22 +3586,19 @@ function TweakPanel(props) {
         return React.createElement(React.Fragment, null,
             React.createElement(PresetHeader, { label: "\u30A2\u30EC\u30FC\u56F3" }),
             React.createElement(ArraySymbolStyleEditor, { value: presets.array, symbolSize: presets.array.symbolSize, onChange: (patch) => onPresetChange('array', patch) }),
-            React.createElement(ArrayFields, { value: presets.array, onChange: (patch) => onPresetChange('array', patch) }),
-            React.createElement("p", { className: "panel-hint" }, "\u9078\u629E\u4E2D\u306B\u5909\u66F4\u3057\u305F\u8272\u30FB\u5927\u304D\u3055\u30FB\u4E0D\u900F\u660E\u5EA6\u306F\u3001\u6B21\u306E\u914D\u7F6E\u306B\u5F15\u304D\u7D99\u304C\u308C\u307E\u3059\u3002"));
+            React.createElement(ArrayFields, { value: presets.array, onChange: (patch) => onPresetChange('array', patch) }));
     if (activeTool === 'ball' || activeTool === 'person') {
         const preset = presets[activeTool];
         return React.createElement(React.Fragment, null,
             React.createElement(PresetHeader, { label: defaults_1.TOOL_LABELS[activeTool] }),
-            React.createElement(ArraySymbolStyleEditor, { value: preset, symbolSize: preset.symbolSize, onChange: (patch) => onPresetChange(activeTool, patch) }),
-            React.createElement("p", { className: "panel-hint" }, "\u30AF\u30EA\u30C3\u30AF\u30671\u500B\u305A\u3064\u914D\u7F6E\u3002\u9078\u629E\u4E2D\u306B\u5909\u66F4\u3057\u305F\u8272\u30FB\u5927\u304D\u3055\u30FB\u4E0D\u900F\u660E\u5EA6\u306F\u3001\u6B21\u306E\u914D\u7F6E\u306B\u5F15\u304D\u7D99\u304C\u308C\u307E\u3059\u3002"));
+            React.createElement(ArraySymbolStyleEditor, { value: preset, symbolSize: preset.symbolSize, onChange: (patch) => onPresetChange(activeTool, patch) }));
     }
     if (activeTool === 'bundle') {
         const preset = presets.bundle;
         return React.createElement(React.Fragment, null,
             React.createElement(PresetHeader, { label: "\u307E\u3068\u307E\u308A" }),
             React.createElement(ArraySymbolStyleEditor, { value: preset, symbolSize: preset.symbolSize, onChange: (patch) => onPresetChange('bundle', patch) }),
-            React.createElement(BundleValueEditor, { value: preset.bundleValue, onChange: (bundleValue) => onPresetChange('bundle', { bundleValue }) }),
-            React.createElement("p", { className: "panel-hint" }, "\u7E26\uFF1A\u6A2A\uFF1D1\uFF1A\u221A2\u306E\u6BD4\u7387\u3092\u4FDD\u3063\u3066\u914D\u7F6E\u3057\u307E\u3059\u3002\u9078\u629E\u4E2D\u306B\u5909\u66F4\u3057\u305F\u8272\u30FB\u5927\u304D\u3055\u30FB\u4E0D\u900F\u660E\u5EA6\u30FB\u6570\u5024\u306F\u3001\u6B21\u306E\u914D\u7F6E\u306B\u5F15\u304D\u7D99\u304C\u308C\u307E\u3059\u3002"));
+            React.createElement(BundleValueEditor, { value: preset.bundleValue, onChange: (bundleValue) => onPresetChange('bundle', { bundleValue }) }));
     }
     if (activeTool === 'segment')
         return React.createElement(React.Fragment, null,
@@ -3455,8 +3677,7 @@ function MultiSelectionEditor({ count, unitCount, isSingleGroup, canGroup, canUn
             React.createElement("button", { type: "button", onClick: () => onArrange('front') }, "\u6700\u524D\u9762"),
             React.createElement("button", { type: "button", onClick: () => onArrange('forward') }, "\u4E00\u3064\u524D\u3078"),
             React.createElement("button", { type: "button", onClick: () => onArrange('backward') }, "\u4E00\u3064\u5F8C\u308D\u3078"),
-            React.createElement("button", { type: "button", onClick: () => onArrange('back') }, "\u6700\u80CC\u9762")),
-        React.createElement("p", { className: "panel-hint" }, "Shift\uFF0B\u30AF\u30EA\u30C3\u30AF\u3067\u9078\u629E\u3092\u8FFD\u52A0\u30FB\u89E3\u9664\u3067\u304D\u307E\u3059\u3002Ctrl\uFF0BG\u3067\u30B0\u30EB\u30FC\u30D7\u5316\u3001Ctrl\uFF0BShift\uFF0BG\u3067\u89E3\u9664\u3067\u304D\u307E\u3059\u3002")));
+            React.createElement("button", { type: "button", onClick: () => onArrange('back') }, "\u6700\u80CC\u9762"))));
 }
 function SelectedObjectEditor({ object, resolvedObject, variables, coordinateUnitPx, worldToCoordinate, onPatch, onChange, onDelete, onDuplicate }) {
     const setBinding = (key, value, clearKeys = []) => onChange((current) => {
@@ -3756,13 +3977,13 @@ function SettingsEditor({ settings, onChange, onSave, onLoad, onReset }) {
             React.createElement("button", { type: "button", onClick: onLoad }, "\u74B0\u5883\u8A2D\u5B9A\u3092\u8AAD\u307F\u8FBC\u3080"),
             React.createElement("button", { type: "button", className: "danger", onClick: onReset }, "\u521D\u671F\u8A2D\u5B9A\u306B\u623B\u3059")));
 }
-function TextEntry({ initial, onSubmit, onCancel }) {
+function TextEntry({ initial, submitLabel = '追加', onSubmit, onCancel }) {
     const [value, setValue] = (0, react_1.useState)(initial);
     return React.createElement("form", { onSubmit: (event) => { event.preventDefault(); onSubmit(value); } },
         React.createElement("textarea", { className: "large-entry", autoFocus: true, value: value, onChange: (event) => setValue(event.target.value), placeholder: "\u8868\u793A\u3059\u308B\u6587\u5B57\u3092\u5165\u529B" }),
         React.createElement("div", { className: "modal-actions" },
             React.createElement("button", { type: "button", onClick: onCancel }, "\u30AD\u30E3\u30F3\u30BB\u30EB"),
-            React.createElement("button", { type: "submit", className: "primary-button", disabled: !value.trim() }, "\u8FFD\u52A0")));
+            React.createElement("button", { type: "submit", className: "primary-button", disabled: !value.trim() }, submitLabel)));
 }
 function MathEditor({ initial, onSubmit, onCancel }) {
     const [value, setValue] = (0, react_1.useState)(sanitizeExpression(initial));
@@ -3913,6 +4134,10 @@ function Icon({ name, size = 22 }) {
             React.createElement("path", { d: "M16 8V5H5v11h3" }));
         case 'chevron': return React.createElement("svg", { ...common },
             React.createElement("path", { d: "M8 10l4 4 4-4" }));
+        case 'hint': return React.createElement("svg", { ...common },
+            React.createElement("path", { d: "M9 18h6M10 21h4" }),
+            React.createElement("path", { d: "M8.2 14.8A6 6 0 1115.8 14.8c-.9.8-1.3 1.6-1.4 2.2h-4.8c-.1-.6-.5-1.4-1.4-2.2z" }),
+            React.createElement("path", { d: "M12 2V1M4.9 4.9l-.7-.7M19.1 4.9l.7-.7M3 12H2M22 12h-1" }));
         case 'blank': return React.createElement("svg", { ...common },
             React.createElement("rect", { x: "4", y: "4", width: "16", height: "16", rx: "2" }));
         case 'grid': return React.createElement("svg", { ...common },
@@ -4149,7 +4374,7 @@ exports.TOOL_LABELS = exports.BASIC_TOOLS = exports.ALL_TOOLS = exports.APP_VERS
 exports.createInitialProject = createInitialProject;
 exports.createDefaultSettings = createDefaultSettings;
 const geometry_1 = require("./lib/geometry");
-exports.APP_VERSION = '0.3.0-alpha.1';
+exports.APP_VERSION = '0.3.0-alpha.2';
 exports.ALL_TOOLS = [
     'select', 'pan', 'zoom', 'pen', 'line', 'arrow', 'rectangle', 'ellipse', 'polygon',
     'text', 'math', 'array', 'ball', 'person', 'bundle', 'segment', 'function',

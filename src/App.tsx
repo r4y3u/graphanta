@@ -5,6 +5,7 @@ import {
   useRef,
   useState,
   type ChangeEvent,
+  type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
   type WheelEvent as ReactWheelEvent,
 } from 'react';
@@ -109,8 +110,8 @@ type Interaction =
 
 type ModalState =
   | { kind: 'settings' }
-  | { kind: 'text'; point: Point; value: string }
-  | { kind: 'math'; point: Point; value: string; expressionId?: string }
+  | { kind: 'text'; point: Point; value: string; objectId?: string }
+  | { kind: 'math'; point: Point; value: string; expressionId?: string; objectId?: string }
   | { kind: 'about' }
   | null;
 
@@ -125,6 +126,35 @@ const TOOL_CONTEXT_GROUPS: ToolId[][] = [
 
 function groupForTool(tool: ToolId): ToolId[] | null {
   return TOOL_CONTEXT_GROUPS.find((group) => group.includes(tool)) ?? null;
+}
+
+function tweakHintFor(activeTool: ToolId, selectedObjects: GraphicObject[], polygonCount: number): string {
+  if (activeTool === 'select') {
+    if (selectedObjects.length > 1) return 'Shift＋クリックで選択を追加・解除できます。Ctrl＋Gでグループ化、Ctrl＋Shift＋Gで解除できます。';
+    const selected = selectedObjects[0];
+    if (selected?.type === 'text') return '文字をダブルクリックすると、内容を編集するウィンドウが開きます。選択枠のハンドルでは大きさを調整できます。';
+    if (selected?.type === 'math') return '数式をダブルクリックすると、構造プレビュー付きの編集ウィンドウが開きます。';
+    if (selected?.type === 'polygon') return '頂点をドラッグして形を調整できます。辺の中央の印から頂点を追加し、Shift＋頂点クリックで削除できます。';
+    if (selected) return '四隅のハンドルで大きさを変更できます。Shiftを押しながら操作すると縦横比を保ちます。';
+    return 'クリックで選択、ドラッグで範囲選択します。Shiftを押すと複数選択できます。吸着設定は各描画ツールと共通です。';
+  }
+  if (activeTool === 'pan') return 'ドラッグで表示位置を移動します。右ドラッグまたは2本指ドラッグでも一時的にスクロールできます。';
+  if (activeTool === 'zoom') return 'クリックで拡大、Shift＋クリックで縮小します。範囲を囲むと、その範囲を画面内へ最大表示します。';
+  if (activeTool === 'pen') return '描画中は選択枠を表示しません。吸着の2項目は「選択」ツウィークと同じ設定を共有します。';
+  if (activeTool === 'line') return '始点から終点までドラッグします。Shiftを押すと45度単位の方向へそろえられます。';
+  if (activeTool === 'arrow') return '始点から終点までドラッグします。Shiftを押すと45度単位の方向へそろえられます。';
+  if (activeTool === 'rectangle') return '対角の2点をドラッグして作成します。Shiftを押すと正方形になります。';
+  if (activeTool === 'ellipse') return '中心から外側へドラッグして作成します。Shiftを押すと円になります。';
+  if (activeTool === 'polygon') return polygonCount > 0
+    ? `${polygonCount}点を指定中です。3点以上で作成でき、Enterでも確定、Escで中止できます。`
+    : '頂点にしたい位置を順にクリックします。3点以上指定すると「○点で作成」から確定できます。';
+  if (activeTool === 'text') return '配置位置をクリックして文字を入力します。作成後は「選択」ツールでダブルクリックすると再編集できます。';
+  if (activeTool === 'math') return '配置位置をクリックして数式を入力します。/、^、_、sqrt()などを構造的に組版します。作成後はダブルクリックで再編集できます。';
+  if (activeTool === 'array') return '選択中に変更した色・大きさ・不透明度は、次の配置に引き継がれます。行数と列数には数式も使用できます。';
+  if (activeTool === 'ball' || activeTool === 'person') return 'クリックで1個ずつ配置します。ドラッグすると大きさも同時に調整でき、選択中の設定は次の配置へ引き継がれます。';
+  if (activeTool === 'bundle') return '縦：横＝1：√2の比率を保って配置します。色・大きさ・不透明度・数値は次の配置へ引き継がれます。';
+  if (activeTool === 'segment') return '数直線・テープ図・線分図を切り替えられます。目盛りの数値には変数や式を指定できます。';
+  return '関数グラフ描画は将来版で有効になります。現在は数式の登録と配置をfウィンドウから利用できます。';
 }
 
 interface ContextToolMenuState {
@@ -756,10 +786,12 @@ function App() {
   const [screenshotMenuOpen, setScreenshotMenuOpen] = useState(false);
   const [fourShotCaptures, setFourShotCaptures] = useState<PngCapture[]>([]);
   const [screenshotBusy, setScreenshotBusy] = useState(false);
+  const [tweakHintOpen, setTweakHintOpen] = useState(false);
   const plotViewportRef = useRef<HTMLDivElement | null>(null);
   const activePointers = useRef(new Map<number, Point>());
   const touchGesture = useRef<TouchGestureState | null>(null);
   const centeredInitialView = useRef(false);
+  const lastSelectPress = useRef<{ objectId: string; at: number; clientX: number; clientY: number } | null>(null);
 
   const selectedId = selectedIds.at(-1) ?? null;
   const setSelectedId = useCallback((value: string | null) => setSelectedIds(value ? [value] : []), []);
@@ -788,6 +820,7 @@ function App() {
   const resolvedObjects = useMemo(() => project.objects.filter((object) => !object.hidden).map(resolveObject), [project.objects, resolveObject]);
   const selectedResolvedObject = useMemo(() => selectedObject ? resolveObject(selectedObject) : null, [selectedObject, resolveObject]);
   const selectedResolvedObjects = useMemo(() => selectedObjects.map(resolveObject), [selectedObjects, resolveObject]);
+  const tweakHint = useMemo(() => tweakHintFor(activeTool, selectedObjects, polygonPoints.length), [activeTool, polygonPoints.length, selectedObjects]);
   const snapGeometry = useMemo(() => {
     const entries = resolvedObjects.map((object) => ({ objectId: object.id, ...getSnapGeometry(object) }));
     const intersections: Array<{ point: Point; objectIds: [string, string] }> = [];
@@ -966,6 +999,15 @@ function App() {
   }, [mutateProject, selectedIds]);
 
   useEffect(() => saveSettingsLocal(settings), [settings]);
+
+  useEffect(() => setTweakHintOpen(false), [activeTool, selectedIds, panelCollapsed.tweak]);
+
+  useEffect(() => {
+    if (!tweakHintOpen) return;
+    const dismiss = () => setTweakHintOpen(false);
+    document.addEventListener('pointerdown', dismiss, { once: true });
+    return () => document.removeEventListener('pointerdown', dismiss);
+  }, [tweakHintOpen]);
 
   useEffect(() => {
     const blockBrowserContextMenu = (event: MouseEvent) => {
@@ -1302,6 +1344,8 @@ function App() {
     const objectElement = target.closest('[data-object-id]');
     const objectId = objectElement?.getAttribute('data-object-id') ?? null;
 
+    if (activeTool !== 'select') lastSelectPress.current = null;
+
     if (activeTool === 'pan') {
       event.currentTarget.setPointerCapture(event.pointerId);
       setInteraction({ kind: 'pan', clientStart: { x: event.clientX, y: event.clientY }, originalView: view });
@@ -1387,6 +1431,7 @@ function App() {
 
     if (activeTool === 'select') {
       if (!objectId) {
+        lastSelectPress.current = null;
         const start = rawWorldPoint(event.clientX, event.clientY);
         if (!event.shiftKey) setSelectedIds([]);
         event.currentTarget.setPointerCapture(event.pointerId);
@@ -1396,6 +1441,22 @@ function App() {
       }
       const object = project.objects.find((item) => item.id === objectId);
       if (!object) return;
+      const now = Date.now();
+      const previousPress = lastSelectPress.current;
+      const isDoublePress = previousPress?.objectId === object.id
+        && now - previousPress.at <= 460
+        && Math.hypot(event.clientX - previousPress.clientX, event.clientY - previousPress.clientY) <= 12;
+      lastSelectPress.current = isDoublePress ? null : { objectId: object.id, at: now, clientX: event.clientX, clientY: event.clientY };
+      if (isDoublePress && !object.locked && (object.type === 'text' || object.type === 'math')) {
+        setInteraction(null);
+        setSelectedId(object.id);
+        if (object.type === 'text') {
+          setModal({ kind: 'text', point: { x: object.x, y: object.y }, value: object.text, objectId: object.id });
+        } else {
+          setModal({ kind: 'math', point: { x: object.x, y: object.y }, value: object.expression, objectId: object.id });
+        }
+        return;
+      }
       const clickedIds = selectionIdsForObject(project.objects, objectId);
       if (event.shiftKey) {
         setSelectedIds((current) => {
@@ -1436,6 +1497,7 @@ function App() {
       return;
     }
     if (activeTool === 'polygon') {
+      if (polygonPoints.length === 0) setSelectedIds([]);
       setPolygonPoints((points) => [...points, point]);
       setStatus('多角形: 頂点を追加中。Enterで確定、Escで中止');
       return;
@@ -1534,6 +1596,7 @@ function App() {
       }
     }
     if (interaction.kind === 'move') {
+      if (distance(point, interaction.start) > 6 / Math.max(view.zoom, 0.25)) lastSelectPress.current = null;
       gestureChanged.current = true;
       const dx = point.x - interaction.start.x;
       const dy = point.y - interaction.start.y;
@@ -1984,10 +2047,24 @@ function App() {
         }
       }
     })();
-    return <g key={sourceObject.id} data-object-id={sourceObject.id} className={sourceObject.locked ? 'object-locked' : ''}>{content}{hit}</g>;
+    const editOnDoubleClick = (event: ReactMouseEvent<SVGGElement>) => {
+      if (activeTool !== 'select' || sourceObject.locked) return;
+      if (sourceObject.type !== 'text' && sourceObject.type !== 'math') return;
+      event.preventDefault();
+      event.stopPropagation();
+      setInteraction(null);
+      setSelectedId(sourceObject.id);
+      if (sourceObject.type === 'text') {
+        setModal({ kind: 'text', point: { x: sourceObject.x, y: sourceObject.y }, value: sourceObject.text, objectId: sourceObject.id });
+      } else {
+        setModal({ kind: 'math', point: { x: sourceObject.x, y: sourceObject.y }, value: sourceObject.expression, objectId: sourceObject.id });
+      }
+    };
+    return <g key={sourceObject.id} data-object-id={sourceObject.id} className={sourceObject.locked ? 'object-locked' : ''} onDoubleClick={editOnDoubleClick}>{content}{hit}</g>;
   }
 
   function selectionOverlay() {
+    if (interaction?.kind === 'draw' && interaction.tool === 'pen') return null;
     if (!selectedResolvedObjects.length) return null;
     const pad = 8 / view.zoom;
     const radius = 6 / view.zoom;
@@ -2351,7 +2428,11 @@ function App() {
 
         <aside className="side-panels">
           <section className={`side-panel tweak-panel ${panelCollapsed.tweak ? 'collapsed' : ''}`}>
-            <button type="button" className="panel-heading" aria-expanded={!panelCollapsed.tweak} title={panelCollapsed.tweak ? 'ツウィークを開く' : 'ツウィークを畳む'} onClick={() => setPanelCollapsed((current) => ({ ...current, tweak: !current.tweak }))}><span className="panel-title">ツウィーク</span><span className="panel-short">T</span><Icon name="chevron" size={18} /></button>
+            <div className="panel-heading-wrap" onMouseLeave={() => setTweakHintOpen(false)}>
+              <button type="button" className="panel-heading" aria-expanded={!panelCollapsed.tweak} title={panelCollapsed.tweak ? 'ツウィークを開く' : 'ツウィークを畳む'} onClick={() => setPanelCollapsed((current) => ({ ...current, tweak: !current.tweak }))}><span className="panel-title">ツウィーク</span><span className="panel-short">T</span><Icon name="chevron" size={18} /></button>
+              {!panelCollapsed.tweak && <button type="button" className={`tweak-hint-button ${tweakHintOpen ? 'is-open' : ''}`} aria-label="このツールのヒント" aria-expanded={tweakHintOpen} title="このツールのヒント" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); setTweakHintOpen((open) => !open); }}><Icon name="hint" size={16} /></button>}
+              {tweakHintOpen && !panelCollapsed.tweak && <div className="tweak-hint-popover" role="status">{tweakHint}</div>}
+            </div>
             <div className="panel-content tweak-content" aria-hidden={panelCollapsed.tweak}><TweakPanel
               project={project}
               activeTool={activeTool}
@@ -2377,7 +2458,9 @@ function App() {
             /></div>
           </section>
           <section className={`side-panel expression-panel ${panelCollapsed.expressions ? 'collapsed' : ''}`}>
-            <button type="button" className="panel-heading" aria-expanded={!panelCollapsed.expressions} title={panelCollapsed.expressions ? 'fウィンドウを開く' : 'fウィンドウを畳む'} onClick={() => setPanelCollapsed((current) => ({ ...current, expressions: !current.expressions }))}><span className="panel-title">f　数式・変数</span><span className="panel-short">f</span><Icon name="chevron" size={18} /></button>
+            <div className="panel-heading-wrap">
+              <button type="button" className="panel-heading" aria-expanded={!panelCollapsed.expressions} title={panelCollapsed.expressions ? 'fウィンドウを開く' : 'fウィンドウを畳む'} onClick={() => setPanelCollapsed((current) => ({ ...current, expressions: !current.expressions }))}><span className="panel-title">f　数式・変数</span><span className="panel-short">f</span><Icon name="chevron" size={18} /></button>
+            </div>
             <div className="panel-content" aria-hidden={panelCollapsed.expressions}><ExpressionPanel
               project={project}
               onAddVariable={addVariable}
@@ -2399,8 +2482,18 @@ function App() {
       <input ref={settingsInputRef} type="file" accept=".json,.graphanta-settings.json,application/json" hidden onChange={loadSettingsFile} />
 
       {modal?.kind === 'settings' && <Modal title="環境設定" wide onClose={() => setModal(null)}><SettingsEditor settings={settings} onChange={(next) => setSettings(normalizeSettings(next))} onSave={() => downloadJson('graphanta-settings.json', settings)} onLoad={() => settingsInputRef.current?.click()} onReset={() => setSettings(createDefaultSettings())} /></Modal>}
-      {modal?.kind === 'text' && <Modal title="文字を追加" onClose={() => setModal(null)}><TextEntry initial={modal.value} onSubmit={(value) => { addText(value, modal.point); setModal(null); }} onCancel={() => setModal(null)} /></Modal>}
-      {modal?.kind === 'math' && <Modal title="数式ウィンドウ" wide onClose={() => setModal(null)}><MathEditor initial={modal.value} onSubmit={(value) => { if (modal.expressionId) updateExpression(modal.expressionId, { source: sanitizeExpression(value) }); else addMath(value, modal.point); setModal(null); }} onCancel={() => setModal(null)} /></Modal>}
+      {modal?.kind === 'text' && <Modal title={modal.objectId ? '文字を編集' : '文字を追加'} onClose={() => setModal(null)}><TextEntry initial={modal.value} submitLabel={modal.objectId ? '更新' : '追加'} onSubmit={(value) => {
+        if (modal.objectId) updateObject(modal.objectId, (object) => object.type === 'text' ? { ...object, text: value.trim() } : object);
+        else addText(value, modal.point);
+        setModal(null);
+      }} onCancel={() => setModal(null)} /></Modal>}
+      {modal?.kind === 'math' && <Modal title={modal.objectId ? '数式を編集' : '数式ウィンドウ'} wide onClose={() => setModal(null)}><MathEditor initial={modal.value} onSubmit={(value) => {
+        const expression = sanitizeExpression(value);
+        if (modal.objectId) updateObject(modal.objectId, (object) => object.type === 'math' ? { ...object, expression } : object);
+        else if (modal.expressionId) updateExpression(modal.expressionId, { source: expression });
+        else addMath(expression, modal.point);
+        setModal(null);
+      }} onCancel={() => setModal(null)} /></Modal>}
       {modal?.kind === 'about' && <Modal title="Graphanta" onClose={() => setModal(null)}><div className="about-box"><div className="about-logo">G</div><p><strong>Graphanta {APP_VERSION}</strong></p><p>数学的な思考と表現を、速く・簡単に・見やすく支えるローカルファーストの作図環境です。</p></div></Modal>}
     </div>
   );
@@ -2433,7 +2526,12 @@ interface TweakPanelProps {
 function TweakPanel(props: TweakPanelProps) {
   const { project, activeTool, selected, selectedObjects, resolvedSelected, presets, coordinateUnitPx, worldToCoordinate, coordinateToWorld, onPresetChange, onCanvasChange, onObjectChange, onDelete, onDuplicate, onGroup, onUngroup, onAlign, onArrange, onFinalizePolygon, polygonCount, onCreateFromCoordinates } = props;
   const navigationMode = activeTool === 'select' || activeTool === 'pan' || activeTool === 'zoom';
-  const showSelected = selectedObjects.length === 1 && Boolean(selected) && activeTool !== 'pan' && activeTool !== 'zoom' && (activeTool === 'select' || (selected ? toolForObject(selected) === activeTool : false));
+  const showSelected = selectedObjects.length === 1
+    && Boolean(selected)
+    && activeTool !== 'pan'
+    && activeTool !== 'zoom'
+    && !(activeTool === 'polygon' && polygonCount > 0)
+    && (activeTool === 'select' || (selected ? toolForObject(selected) === activeTool : false));
   const patchObject = (changes: Partial<GraphicObject>) => onObjectChange((object) => {
     if (object.type === 'array' && 'symbolSize' in changes && typeof changes.symbolSize === 'number'
       && (object.symbol === 'ball' || object.symbol === 'person' || object.symbol === 'bundle')) {
@@ -2507,7 +2605,7 @@ function TweakPanel(props: TweakPanelProps) {
     return <SelectedObjectEditor object={selected} resolvedObject={resolvedSelected ?? selected} variables={project.variables} coordinateUnitPx={coordinateUnitPx} worldToCoordinate={worldToCoordinate} coordinateToWorld={coordinateToWorld} onPatch={patchObject} onChange={onObjectChange} onDelete={onDelete} onDuplicate={onDuplicate} />;
   }
 
-  if (activeTool === 'pen') return <><PresetHeader label="フリーハンド" /><LineStyleEditor value={presets.pen} onChange={(patch) => onPresetChange('pen', patch)} /></>;
+  if (activeTool === 'pen') return <><PresetHeader label="フリーハンド" /><LineStyleEditor value={presets.pen} onChange={(patch) => onPresetChange('pen', patch)} /><Toggle label="吸着" checked={project.canvas.snapGrid} onChange={(checked) => onCanvasChange({ snapGrid: checked })} /><Toggle label="点・交点・辺へ吸着" checked={project.canvas.snapPoints} onChange={(checked) => onCanvasChange({ snapPoints: checked })} /></>;
   if (activeTool === 'line' || activeTool === 'arrow') {
     const preset = presets[activeTool];
     return (
@@ -2534,17 +2632,17 @@ function TweakPanel(props: TweakPanelProps) {
       </>
     );
   }
-  if (activeTool === 'polygon') return <><PresetHeader label="多角形" /><ShapeStyleEditor value={presets.polygon} onChange={(patch) => onPresetChange('polygon', patch)} />{polygonCount > 0 && <button type="button" className="primary-button full" onClick={onFinalizePolygon} disabled={polygonCount < 3}>多角形を確定（{polygonCount}点）</button>}</>;
+  if (activeTool === 'polygon') return <><PresetHeader label="多角形" /><ShapeStyleEditor value={presets.polygon} onChange={(patch) => onPresetChange('polygon', patch)} />{polygonCount > 0 && <button type="button" className="primary-button full polygon-create-button" onClick={onFinalizePolygon} disabled={polygonCount < 3}>{polygonCount}点で作成</button>}</>;
   if (activeTool === 'text') return <><PresetHeader label="文字" /><LineStyleEditor value={presets.text} onChange={(patch) => onPresetChange('text', patch)} /><Field label="文字サイズ" labelActions={<StepButtons value={presets.text.fontSize} min={8} max={160} step={1} onChange={(fontSize) => onPresetChange('text', { fontSize })} />}><RangeNumber value={presets.text.fontSize} min={8} max={160} step={1} onChange={(fontSize) => onPresetChange('text', { fontSize })} /></Field></>;
   if (activeTool === 'math') return <><PresetHeader label="数式" /><LineStyleEditor value={presets.math} onChange={(patch) => onPresetChange('math', patch)} /><Field label="文字サイズ" labelActions={<StepButtons value={presets.math.fontSize} min={8} max={160} step={1} onChange={(fontSize) => onPresetChange('math', { fontSize })} />}><RangeNumber value={presets.math.fontSize} min={8} max={160} step={1} onChange={(fontSize) => onPresetChange('math', { fontSize })} /></Field></>;
-  if (activeTool === 'array') return <><PresetHeader label="アレー図" /><ArraySymbolStyleEditor value={presets.array} symbolSize={presets.array.symbolSize} onChange={(patch) => onPresetChange('array', patch)} /><ArrayFields value={presets.array} onChange={(patch) => onPresetChange('array', patch)} /><p className="panel-hint">選択中に変更した色・大きさ・不透明度は、次の配置に引き継がれます。</p></>;
+  if (activeTool === 'array') return <><PresetHeader label="アレー図" /><ArraySymbolStyleEditor value={presets.array} symbolSize={presets.array.symbolSize} onChange={(patch) => onPresetChange('array', patch)} /><ArrayFields value={presets.array} onChange={(patch) => onPresetChange('array', patch)} /></>;
   if (activeTool === 'ball' || activeTool === 'person') {
     const preset = presets[activeTool];
-    return <><PresetHeader label={TOOL_LABELS[activeTool]} /><ArraySymbolStyleEditor value={preset} symbolSize={preset.symbolSize} onChange={(patch) => onPresetChange(activeTool, patch)} /><p className="panel-hint">クリックで1個ずつ配置。選択中に変更した色・大きさ・不透明度は、次の配置に引き継がれます。</p></>;
+    return <><PresetHeader label={TOOL_LABELS[activeTool]} /><ArraySymbolStyleEditor value={preset} symbolSize={preset.symbolSize} onChange={(patch) => onPresetChange(activeTool, patch)} /></>;
   }
   if (activeTool === 'bundle') {
     const preset = presets.bundle;
-    return <><PresetHeader label="まとまり" /><ArraySymbolStyleEditor value={preset} symbolSize={preset.symbolSize} onChange={(patch) => onPresetChange('bundle', patch)} /><BundleValueEditor value={preset.bundleValue} onChange={(bundleValue) => onPresetChange('bundle', { bundleValue })} /><p className="panel-hint">縦：横＝1：√2の比率を保って配置します。選択中に変更した色・大きさ・不透明度・数値は、次の配置に引き継がれます。</p></>;
+    return <><PresetHeader label="まとまり" /><ArraySymbolStyleEditor value={preset} symbolSize={preset.symbolSize} onChange={(patch) => onPresetChange('bundle', patch)} /><BundleValueEditor value={preset.bundleValue} onChange={(bundleValue) => onPresetChange('bundle', { bundleValue })} /></>;
   }
   if (activeTool === 'segment') return <><PresetHeader label="目盛り" /><LineStyleEditor value={presets.segment} onChange={(patch) => onPresetChange('segment', patch)} /><MeasureFields value={presets.segment} onChange={(patch) => onPresetChange('segment', patch)} /></>;
   return null;
@@ -2636,7 +2734,6 @@ function MultiSelectionEditor({ count, unitCount, isSingleGroup, canGroup, canUn
         <button type="button" onClick={() => onArrange('backward')}>一つ後ろへ</button>
         <button type="button" onClick={() => onArrange('back')}>最背面</button>
       </div>
-      <p className="panel-hint">Shift＋クリックで選択を追加・解除できます。Ctrl＋Gでグループ化、Ctrl＋Shift＋Gで解除できます。</p>
     </>
   );
 }
@@ -2859,9 +2956,9 @@ function SettingsEditor({ settings, onChange, onSave, onLoad, onReset }: Setting
   return <div className="settings-grid"><section><h3>レイアウト</h3><Field label="ツールバー位置"><select value={settings.toolbarSide} onChange={(event) => onChange({ ...settings, toolbarSide: event.target.value as 'left' | 'right' })}><option value="right">右側</option><option value="left">左側</option></select></Field><Field label="ツウィーク／f位置"><select value={settings.panelSide} onChange={(event) => onChange({ ...settings, panelSide: event.target.value as 'left' | 'right' })}><option value="right">右側</option><option value="left">左側</option></select></Field><p className="settings-note">ツウィークとfウィンドウは1組のサイドパネルとして移動します。</p><Toggle label="前回の作業を自動復旧" checked={settings.autoRestore} onChange={(autoRestore) => onChange({ ...settings, autoRestore })} /><h3>新規要素の初期値</h3><Field label="線の色"><input type="color" value={settings.defaultStroke} onChange={(event) => onChange({ ...settings, defaultStroke: event.target.value })} /></Field><Field label="線の太さ" labelActions={<StepButtons value={settings.defaultStrokeWidth} min={0.5} max={12} step={0.5} onChange={(defaultStrokeWidth) => onChange({ ...settings, defaultStrokeWidth })} />}><AsciiNumber value={settings.defaultStrokeWidth} min={0.5} max={12} step={0.5} onChange={(defaultStrokeWidth) => onChange({ ...settings, defaultStrokeWidth })} /></Field></section><section><h3>表示するツール</h3><div className="tool-settings-list">{ALL_TOOLS.map((tool) => <label key={tool} className="tool-setting"><input type="checkbox" checked={settings.visibleTools.includes(tool)} onChange={(event) => toggleTool(tool, event.target.checked)} /><Icon name={tool} size={20} /><span>{TOOL_LABELS[tool]}</span></label>)}</div></section><footer className="settings-footer"><button type="button" onClick={onSave}>環境設定を書き出す</button><button type="button" onClick={onLoad}>環境設定を読み込む</button><button type="button" className="danger" onClick={onReset}>初期設定に戻す</button></footer></div>;
 }
 
-function TextEntry({ initial, onSubmit, onCancel }: { initial: string; onSubmit: (value: string) => void; onCancel: () => void }) {
+function TextEntry({ initial, submitLabel = '追加', onSubmit, onCancel }: { initial: string; submitLabel?: string; onSubmit: (value: string) => void; onCancel: () => void }) {
   const [value, setValue] = useState(initial);
-  return <form onSubmit={(event) => { event.preventDefault(); onSubmit(value); }}><textarea className="large-entry" autoFocus value={value} onChange={(event) => setValue(event.target.value)} placeholder="表示する文字を入力" /><div className="modal-actions"><button type="button" onClick={onCancel}>キャンセル</button><button type="submit" className="primary-button" disabled={!value.trim()}>追加</button></div></form>;
+  return <form onSubmit={(event) => { event.preventDefault(); onSubmit(value); }}><textarea className="large-entry" autoFocus value={value} onChange={(event) => setValue(event.target.value)} placeholder="表示する文字を入力" /><div className="modal-actions"><button type="button" onClick={onCancel}>キャンセル</button><button type="submit" className="primary-button" disabled={!value.trim()}>{submitLabel}</button></div></form>;
 }
 
 function MathEditor({ initial, onSubmit, onCancel }: { initial: string; onSubmit: (value: string) => void; onCancel: () => void }) {

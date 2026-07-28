@@ -262,6 +262,12 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   box-shadow: 0 8px 24px rgba(42, 48, 77, 0.08);
   transition: width .18s ease, box-shadow .18s ease;
 }
+.panel-heading-wrap {
+  position: relative;
+  z-index: 8;
+  min-width: 0;
+  min-height: 0;
+}
 .side-panel.collapsed {
   width: 44px;
   grid-template-rows: minmax(72px, 1fr);
@@ -283,6 +289,54 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   font-weight: 760;
   letter-spacing: .01em;
 }
+.panel-heading-wrap > .panel-heading { height: 100%; }
+.tweak-hint-button {
+  position: absolute;
+  z-index: 3;
+  top: 50%;
+  left: 82px;
+  display: grid;
+  place-items: center;
+  width: 27px;
+  height: 27px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 50%;
+  color: #756d91;
+  background: transparent;
+  cursor: pointer;
+  transform: translateY(-50%);
+}
+.tweak-hint-button:hover,
+.tweak-hint-button.is-open {
+  color: #9a6a0a;
+  border-color: #ead28d;
+  background: #fff8d9;
+  box-shadow: 0 4px 12px rgba(126, 92, 8, .14);
+}
+.tweak-hint-button:active { transform: translateY(calc(-50% + 1px)) scale(.93); }
+.tweak-hint-popover {
+  position: absolute;
+  z-index: 20;
+  top: 37px;
+  left: 9px;
+  right: 9px;
+  padding: 11px 12px;
+  border: 1px solid rgba(209, 184, 102, .65);
+  border-radius: 11px;
+  color: #5c5136;
+  background: rgba(255, 252, 235, .98);
+  box-shadow: 0 14px 34px rgba(63, 52, 19, .18);
+  backdrop-filter: blur(12px);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.65;
+  animation: tweak-hint-rise .18s cubic-bezier(.2,.85,.25,1) both;
+}
+@keyframes tweak-hint-rise {
+  from { opacity: 0; transform: translateY(7px) scale(.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
 .panel-short { display: none; }
 .collapsed .panel-heading {
   height: 100%;
@@ -295,6 +349,8 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .collapsed .panel-title { display: none; }
 .collapsed .panel-short { display: block; color: var(--primary-strong); font-size: 18px; font-weight: 850; }
 .collapsed .panel-heading svg { transform: rotate(-90deg); }
+.collapsed .tweak-hint-button,
+.collapsed .tweak-hint-popover { display: none; }
 .panel-content { min-height: 0; overflow-y: auto; padding: 12px; scrollbar-width: thin; }
 .panel-hint, .binding-note { margin: 0 0 13px; color: var(--muted); font-size: 12px; line-height: 1.65; }
 .binding-note code { color: var(--primary-strong); font-weight: 750; }
@@ -488,6 +544,52 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   .side-panels { gap: 5px; }
   .panel-content { padding: 9px; }
   .field { grid-template-columns: 70px minmax(0,1fr); }
+}
+
+/* 縦長画面ではツウィークとfを横に圧縮せず、下段へ縦に積む。 */
+@media (max-aspect-ratio: 4 / 5) {
+  .workspace.toolbar-right.panels-right,
+  .workspace.toolbar-right.panels-left {
+    grid-template-columns: minmax(0, 1fr) 56px;
+    grid-template-rows: minmax(270px, 1.08fr) minmax(300px, .92fr);
+    grid-template-areas:
+      "plot tools"
+      "panels panels";
+  }
+  .workspace.toolbar-left.panels-right,
+  .workspace.toolbar-left.panels-left {
+    grid-template-columns: 56px minmax(0, 1fr);
+    grid-template-rows: minmax(270px, 1.08fr) minmax(300px, .92fr);
+    grid-template-areas:
+      "tools plot"
+      "panels panels";
+  }
+  .side-panels {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 6px;
+  }
+  .side-panel,
+  .side-panel.collapsed {
+    width: 100%;
+    max-width: 100%;
+    justify-self: stretch;
+  }
+  .side-panel.collapsed {
+    height: 44px;
+    align-self: start;
+    grid-template-rows: 44px;
+  }
+  .collapsed .panel-heading {
+    height: 44px;
+    flex-direction: row;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 0 13px;
+  }
+  .collapsed .panel-title { display: block; }
+  .collapsed .panel-short { display: none; }
+  .collapsed .panel-heading svg { transform: rotate(180deg); }
 }
 
 /* alpha.4 grouped tools and parameter editors */
