@@ -1,6 +1,6 @@
 <!doctype html>
 <!-- 単体起動版: CSS・JavaScriptを内包し、通信なしで動作します。 -->
-<html lang="ja"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover"><meta name="theme-color" content="#4f46e5"><meta name="description" content="Graphanta - 数学的な思考と表現を支える図・グラフ作成アプリ"><title>Graphanta v0.3.0-alpha.2</title><style>:root {
+<html lang="ja"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover"><meta name="theme-color" content="#4f46e5"><meta name="description" content="Graphanta - 数学的な思考と表現を支える図・グラフ作成アプリ"><title>Graphanta v0.4.0-alpha.1</title><style>:root {
   font-family: Inter, "Noto Sans JP", "Yu Gothic UI", "Yu Gothic", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
   color: #20273b;
   background: #edf0f8;
@@ -1035,6 +1035,74 @@ button:not(:disabled) {
   line-height: 1.4;
   text-align: center;
 }
+
+/* v0.4 save/recovery feedback */
+.tweak-hint-button { left: 104px; }
+.menu-actions button.is-unsaved { position: relative; }
+.unsaved-dot {
+  position: absolute;
+  top: 7px;
+  right: 5px;
+  width: 7px;
+  height: 7px;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  background: #e15b46;
+  box-shadow: 0 1px 5px rgba(185, 61, 43, .28);
+}
+.project-title.is-unsaved { color: #8f3f32; }
+.save-status {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.save-status > i {
+  flex: 0 0 auto;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #8c95a8;
+}
+.save-status.save-saving > i { background: #d29a29; animation: autosave-pulse .75s ease-in-out infinite alternate; }
+.save-status.save-saved > i { background: #3c9a6c; }
+.save-status.save-error > i { background: #cf4b61; }
+@keyframes autosave-pulse { from { opacity: .35; transform: scale(.82); } to { opacity: 1; transform: scale(1.12); } }
+
+.recovery-box {
+  display: grid;
+  grid-template-columns: 54px minmax(0, 1fr);
+  gap: 14px;
+  align-items: start;
+}
+.recovery-icon {
+  display: grid;
+  place-items: center;
+  width: 50px;
+  height: 50px;
+  border-radius: 15px;
+  color: var(--primary-strong);
+  background: linear-gradient(145deg, #f2efff, #fff);
+  border: 1px solid #ded9ff;
+  box-shadow: 0 8px 20px rgba(66, 52, 174, .12);
+}
+.recovery-box h3 { margin: 1px 0 5px; color: #2b3348; font-size: 17px; }
+.recovery-box p { margin: 0 0 10px; color: #687087; line-height: 1.65; }
+.recovery-box dl { display: flex; flex-wrap: wrap; gap: 8px; margin: 0; }
+.recovery-box dl > div { display: inline-flex; gap: 6px; padding: 5px 8px; border-radius: 8px; background: #f4f6fb; font-size: 11px; }
+.recovery-box dt { color: #7a8194; }
+.recovery-box dd { margin: 0; color: #333c52; font-weight: 750; }
+.recovery-warning { margin-top: 10px !important; padding: 8px 10px; border: 1px solid #ead6a3; border-radius: 9px; color: #765d24 !important; background: #fff9e8; font-size: 11px; }
+.recovery-actions { grid-column: 1 / -1; margin-top: 5px; }
+
+@media (max-width: 560px) {
+  .tweak-hint-button { left: 98px; }
+  .status-bar .save-status { max-width: 52%; }
+}
 </style></head><body><div id="root"></div><script>const __vite__mapDeps=(i,m=__vite__mapDeps,d=(m.f||(m.f=["./codeMirrorModule-Bucv2d7q.js","../codeMirrorModule.C3UTv-Ge.css"])))=>i.map(i=>d[i]);
 var R1=Object.defineProperty;var j1=(n,e,i)=>e in n?R1(n,e,{enumerable:!0,configurable:!0,writable:!0,value:i}):n[e]=i;var Te=(n,e,i)=>j1(n,typeof e!="symbol"?e+"":e,i);(function(){const e=document.createElement("link").relList;if(e&&e.supports&&e.supports("modulepreload"))return;for(const l of document.querySelectorAll('link[rel="modulepreload"]'))s(l);new MutationObserver(l=>{for(const o of l)if(o.type==="childList")for(const u of o.addedNodes)u.tagName==="LINK"&&u.rel==="modulepreload"&&s(u)}).observe(document,{childList:!0,subtree:!0});function i(l){const o={};return l.integrity&&(o.integrity=l.integrity),l.referrerPolicy&&(o.referrerPolicy=l.referrerPolicy),l.crossOrigin==="use-credentials"?o.credentials="include":l.crossOrigin==="anonymous"?o.credentials="omit":o.credentials="same-origin",o}function s(l){if(l.ep)return;l.ep=!0;const o=i(l);fetch(l.href,o)}})();function L1(n){return n&&n.__esModule&&Object.prototype.hasOwnProperty.call(n,"default")?n.default:n}var Yf={exports:{}},Ma={};/**
  * @license React
@@ -1162,6 +1230,34 @@ const MIN_DRAW_SIZE = 4;
 const TWO_PI = Math.PI * 2;
 const RAD_TO_DEG = 180 / Math.PI;
 const DEG_TO_RAD = Math.PI / 180;
+const MAX_PROJECT_FILE_BYTES = 20 * 1024 * 1024;
+function projectFingerprint(project) {
+    const { updatedAt: _updatedAt, appVersion: _appVersion, ...content } = project;
+    return JSON.stringify(content);
+}
+function hasRecoverableContent(project) {
+    if (project.objects.length > 0)
+        return true;
+    if (project.title.trim() && project.title !== '無題のプロジェクト')
+        return true;
+    if (project.expressions.length !== 1)
+        return true;
+    const expression = project.expressions[0];
+    if (!expression || expression.label !== '式1' || expression.source.trim() !== 'a=4' || expression.visible !== true)
+        return true;
+    if (project.variables.length !== 1)
+        return true;
+    const variable = project.variables[0];
+    return !variable || variable.name !== 'a' || variable.value !== 4 || variable.min !== 1 || variable.max !== 12 || variable.step !== 1;
+}
+function formatAutosaveTime(value) {
+    if (!value)
+        return '';
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime()))
+        return '';
+    return new Intl.DateTimeFormat('ja-JP', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' }).format(date);
+}
 function clamp(value, min, max) {
     return Math.min(max, Math.max(min, value));
 }
@@ -1262,6 +1358,13 @@ function normalizeSettings(value) {
     return { ...base, ...value, visibleTools };
 }
 function normalizeObject(object) {
+    object = {
+        ...object,
+        stroke: typeof object.stroke === 'string' ? object.stroke : '#25314d',
+        fill: typeof object.fill === 'string' ? object.fill : 'transparent',
+        strokeWidth: Number.isFinite(object.strokeWidth) ? Math.max(0.1, object.strokeWidth) : 2.5,
+        opacity: Number.isFinite(object.opacity) ? clamp(object.opacity, 0, 1) : 1,
+    };
     if (object.type === 'arrow')
         return { ...object, arrowSize: object.arrowSize ?? 14, bindings: object.bindings ?? {} };
     if (object.type === 'rectangle' || object.type === 'array' || object.type === 'pen' || object.type === 'polygon') {
@@ -1326,11 +1429,92 @@ function normalizeProject(value) {
         variables: Array.isArray(value.variables) ? value.variables : base.variables,
     };
 }
+function isFinitePointData(value) {
+    if (!value || typeof value !== 'object')
+        return false;
+    const point = value;
+    return Number.isFinite(point.x) && Number.isFinite(point.y);
+}
+function isGraphicObjectData(value) {
+    if (!value || typeof value !== 'object')
+        return false;
+    const object = value;
+    if (typeof object.id !== 'string' || typeof object.type !== 'string')
+        return false;
+    switch (object.type) {
+        case 'pen':
+        case 'polygon':
+            return Array.isArray(object.points) && object.points.every(isFinitePointData);
+        case 'line':
+        case 'arrow':
+        case 'segment':
+            return isFinitePointData(object.start) && isFinitePointData(object.end);
+        case 'rectangle':
+        case 'array':
+            return Number.isFinite(object.x) && Number.isFinite(object.y) && Number.isFinite(object.width) && Number.isFinite(object.height);
+        case 'ellipse':
+            return Number.isFinite(object.cx) && Number.isFinite(object.cy) && Number.isFinite(object.rx) && Number.isFinite(object.ry);
+        case 'text':
+            return Number.isFinite(object.x) && Number.isFinite(object.y) && typeof object.text === 'string' && Number.isFinite(object.fontSize);
+        case 'math':
+            return Number.isFinite(object.x) && Number.isFinite(object.y) && typeof object.expression === 'string' && Number.isFinite(object.fontSize);
+        default:
+            return false;
+    }
+}
+function isCanvasData(value) {
+    if (!value || typeof value !== 'object')
+        return false;
+    const canvas = value;
+    return Number.isFinite(canvas.width)
+        && Number.isFinite(canvas.height)
+        && typeof canvas.background === 'string'
+        && typeof canvas.gridVisible === 'boolean'
+        && typeof canvas.axesVisible === 'boolean'
+        && Number.isFinite(canvas.gridSize)
+        && Number.isFinite(canvas.coordinatePrecision)
+        && Number.isFinite(canvas.tickInterval)
+        && Number.isFinite(canvas.labelInterval)
+        && typeof canvas.snapGrid === 'boolean'
+        && typeof canvas.snapPoints === 'boolean';
+}
+function isExpressionData(value) {
+    if (!value || typeof value !== 'object')
+        return false;
+    const expression = value;
+    return typeof expression.id === 'string'
+        && typeof expression.label === 'string'
+        && typeof expression.source === 'string'
+        && typeof expression.visible === 'boolean';
+}
+function isVariableData(value) {
+    if (!value || typeof value !== 'object')
+        return false;
+    const variable = value;
+    return typeof variable.id === 'string'
+        && typeof variable.name === 'string'
+        && Number.isFinite(variable.value)
+        && Number.isFinite(variable.min)
+        && Number.isFinite(variable.max)
+        && Number.isFinite(variable.step);
+}
 function isProject(value) {
     if (!value || typeof value !== 'object')
         return false;
     const candidate = value;
-    return candidate.format === 'graphanta-project' && candidate.schemaVersion === 1 && Array.isArray(candidate.objects);
+    return candidate.format === 'graphanta-project'
+        && candidate.schemaVersion === 1
+        && typeof candidate.title === 'string'
+        && isCanvasData(candidate.canvas)
+        && Array.isArray(candidate.objects)
+        && candidate.objects.length <= 100000
+        && candidate.objects.every(isGraphicObjectData)
+        && Array.isArray(candidate.expressions)
+        && candidate.expressions.length <= 10000
+        && candidate.expressions.every(isExpressionData)
+        && Array.isArray(candidate.variables)
+        && candidate.variables.length <= 10000
+        && candidate.variables.every(isVariableData);
 }
 function isSettings(value) {
     if (!value || typeof value !== 'object')
@@ -1714,7 +1898,9 @@ function resizeGraphicObject(object, handle, point, bounds, originalCenter, rota
 }
 function App() {
     const initialSettings = (0, react_1.useMemo)(() => normalizeSettings((0, storage_1.loadSettingsLocal)()), []);
-    const [project, setProject] = (0, react_1.useState)(() => (0, defaults_1.createInitialProject)());
+    const initialProject = (0, react_1.useMemo)(() => (0, defaults_1.createInitialProject)(), []);
+    const [project, setProject] = (0, react_1.useState)(initialProject);
+    const [savedFingerprint, setSavedFingerprint] = (0, react_1.useState)(() => projectFingerprint(initialProject));
     const [settings, setSettings] = (0, react_1.useState)(initialSettings);
     const [presets, setPresets] = (0, react_1.useState)(() => createPresets(initialSettings));
     const [activeTool, setActiveTool] = (0, react_1.useState)('select');
@@ -1729,7 +1915,8 @@ function App() {
     const [modal, setModal] = (0, react_1.useState)(null);
     const [presentation, setPresentation] = (0, react_1.useState)(false);
     const [status, setStatus] = (0, react_1.useState)('準備完了');
-    const [restored, setRestored] = (0, react_1.useState)(false);
+    const [recoveryChecked, setRecoveryChecked] = (0, react_1.useState)(false);
+    const [autosaveUi, setAutosaveUi] = (0, react_1.useState)({ state: 'waiting' });
     const svgRef = (0, react_1.useRef)(null);
     const projectInputRef = (0, react_1.useRef)(null);
     const settingsInputRef = (0, react_1.useRef)(null);
@@ -1761,6 +1948,15 @@ function App() {
     const coordinateOrigin = (0, react_1.useMemo)(() => ({ x: project.canvas.width / 2, y: project.canvas.height / 2 }), [project.canvas.width, project.canvas.height]);
     const visibleWorldWidth = viewportSize.width / view.zoom;
     const visibleWorldHeight = viewportSize.height / view.zoom;
+    const currentFingerprint = (0, react_1.useMemo)(() => projectFingerprint(project), [project]);
+    const isDirty = currentFingerprint !== savedFingerprint;
+    const autosaveLabel = autosaveUi.state === 'saving'
+        ? '自動保存中'
+        : autosaveUi.state === 'error'
+            ? '自動保存できません'
+            : autosaveUi.state === 'saved'
+                ? `自動保存 ${formatAutosaveTime(autosaveUi.savedAt)}`
+                : '自動保存待機';
     const worldToCoordinate = (0, react_1.useCallback)((point) => ({
         x: roundValue((point.x - coordinateOrigin.x) / coordinateUnitPx),
         y: roundValue((coordinateOrigin.y - point.y) / coordinateUnitPx),
@@ -2010,22 +2206,62 @@ function App() {
         });
     }, [selectedObject]);
     (0, react_1.useEffect)(() => {
-        if (restored || !settings.autoRestore)
+        if (recoveryChecked)
             return;
-        setRestored(true);
+        if (!settings.autoRestore) {
+            setRecoveryChecked(true);
+            return;
+        }
+        let cancelled = false;
         (0, storage_1.loadAutosave)().then((saved) => {
-            if (!saved || saved.objects.length === 0)
+            if (cancelled)
                 return;
-            if (window.confirm('前回の作業を復元しますか？')) {
-                setProject(normalizeProject(saved));
-                setStatus('前回の作業を復元しました');
+            if (!saved || !hasRecoverableContent(saved.project)) {
+                setRecoveryChecked(true);
+                return;
             }
-        }).catch(() => setStatus('自動復旧データを確認できませんでした'));
-    }, [restored, settings.autoRestore]);
+            setModal({ kind: 'recovery', record: saved });
+        }).catch(() => {
+            if (cancelled)
+                return;
+            setRecoveryChecked(true);
+            setAutosaveUi({ state: 'error' });
+            setStatus('自動復旧データを確認できませんでした');
+        });
+        return () => { cancelled = true; };
+    }, [recoveryChecked, settings.autoRestore]);
     (0, react_1.useEffect)(() => {
-        const timer = window.setTimeout(() => (0, storage_1.saveAutosave)(project).catch(() => undefined), 700);
-        return () => window.clearTimeout(timer);
-    }, [project]);
+        if (!recoveryChecked)
+            return;
+        let cancelled = false;
+        setAutosaveUi((current) => ({ state: 'saving', savedAt: current.savedAt }));
+        const timer = window.setTimeout(() => {
+            (0, storage_1.saveAutosave)(project).then((record) => {
+                if (!cancelled)
+                    setAutosaveUi({ state: 'saved', savedAt: record.savedAt });
+            }).catch(() => {
+                if (!cancelled)
+                    setAutosaveUi((current) => ({ state: 'error', savedAt: current.savedAt }));
+            });
+        }, 800);
+        return () => {
+            cancelled = true;
+            window.clearTimeout(timer);
+        };
+    }, [project, recoveryChecked]);
+    (0, react_1.useEffect)(() => {
+        const beforeUnload = (event) => {
+            if (!isDirty)
+                return;
+            event.preventDefault();
+            event.returnValue = '';
+        };
+        window.addEventListener('beforeunload', beforeUnload);
+        return () => window.removeEventListener('beforeunload', beforeUnload);
+    }, [isDirty]);
+    (0, react_1.useEffect)(() => {
+        document.title = `${isDirty ? '● ' : ''}Graphanta v${defaults_1.APP_VERSION}`;
+    }, [isDirty]);
     (0, react_1.useEffect)(() => {
         const element = plotViewportRef.current;
         if (!element)
@@ -2056,7 +2292,19 @@ function App() {
             if (target?.matches('input, textarea, select, [contenteditable="true"]'))
                 return;
             const command = event.ctrlKey || event.metaKey;
-            if (command && event.key.toLowerCase() === 'z') {
+            if (command && event.key.toLowerCase() === 's') {
+                event.preventDefault();
+                saveProject();
+            }
+            else if (command && event.key.toLowerCase() === 'o') {
+                event.preventDefault();
+                requestProjectLoad();
+            }
+            else if (command && event.key.toLowerCase() === 'n') {
+                event.preventDefault();
+                newProject();
+            }
+            else if (command && event.key.toLowerCase() === 'z') {
                 event.preventDefault();
                 event.shiftKey ? redo() : undo();
             }
@@ -2073,6 +2321,11 @@ function App() {
                 deleteSelected();
             }
             else if (event.key === 'Escape') {
+                if (modal?.kind === 'recovery') {
+                    event.preventDefault();
+                    discardAutosave();
+                    return;
+                }
                 if (gestureSnapshot.current) {
                     setProject(gestureSnapshot.current);
                     gestureSnapshot.current = null;
@@ -2104,7 +2357,7 @@ function App() {
         };
         window.addEventListener('keydown', onKeyDown);
         return () => window.removeEventListener('keydown', onKeyDown);
-    }, [deleteSelected, groupSelected, mutateProject, polygonPoints.length, redo, selectedResolvedObjects, undo, ungroupSelected]);
+    }, [deleteSelected, groupSelected, isDirty, modal, mutateProject, polygonPoints.length, project, redo, selectedResolvedObjects, undo, ungroupSelected]);
     const rawWorldPoint = (0, react_1.useCallback)((clientX, clientY) => {
         const svg = svgRef.current;
         if (!svg)
@@ -3154,9 +3407,17 @@ function App() {
     const viewBox = `${view.x} ${view.y} ${visibleWorldWidth} ${visibleWorldHeight}`;
     const coordinateGridStep = coordinateUnitPx * Math.max(project.canvas.tickInterval || 1, 0.0001);
     function saveProject() {
-        const safeTitle = project.title.trim().replace(/[\\/:*?"<>|]/g, '_') || 'graphanta-project';
-        (0, storage_1.downloadJson)(`${safeTitle}.graphanta.json`, project);
+        const safeTitle = project.title.trim().replace(/[\/:*?"<>|]/g, '_') || 'graphanta-project';
+        const snapshot = { ...project, appVersion: defaults_1.APP_VERSION, updatedAt: new Date().toISOString() };
+        (0, storage_1.downloadJson)(`${safeTitle}.graphanta.json`, snapshot);
+        setProject(snapshot);
+        setSavedFingerprint(projectFingerprint(snapshot));
         setStatus('プロジェクトファイルを保存しました');
+    }
+    function requestProjectLoad() {
+        if (isDirty && !window.confirm('未保存の変更があります。現在の作業を閉じて読み込みますか？'))
+            return;
+        projectInputRef.current?.click();
     }
     async function loadProjectFile(event) {
         const file = event.target.files?.[0];
@@ -3164,11 +3425,15 @@ function App() {
         if (!file)
             return;
         try {
+            if (file.size > MAX_PROJECT_FILE_BYTES)
+                throw new Error('プロジェクトファイルが大きすぎます（上限20MB）');
             const data = await (0, storage_1.readJsonFile)(file);
             if (!isProject(data))
-                throw new Error('Graphantaのプロジェクト形式ではありません');
+                throw new Error('Graphantaのプロジェクト形式ではないか、内容が破損しています');
+            const normalized = normalizeProject(data);
             commitHistory(project);
-            setProject(normalizeProject(data));
+            setProject(normalized);
+            setSavedFingerprint(projectFingerprint(normalized));
             setSelectedId(null);
             setView({ x: 0, y: 0, zoom: 1 });
             setStatus('プロジェクトを読み込みました');
@@ -3194,13 +3459,36 @@ function App() {
         }
     }
     function newProject() {
-        if (project.objects.length > 0 && !window.confirm('現在の作業を閉じて新規作成しますか？'))
+        if (isDirty && !window.confirm('未保存の変更があります。現在の作業を閉じて新規作成しますか？'))
             return;
         commitHistory(project);
-        setProject((0, defaults_1.createInitialProject)());
+        const next = (0, defaults_1.createInitialProject)();
+        setProject(next);
+        setSavedFingerprint(projectFingerprint(next));
         setSelectedId(null);
         setView({ x: 0, y: 0, zoom: 1 });
         setStatus('新しいプロジェクトを作成しました');
+    }
+    function restoreAutosave(record) {
+        if (!isProject(record.project)) {
+            window.alert('自動保存データが破損しているため復元できませんでした');
+            setModal(null);
+            setRecoveryChecked(true);
+            return;
+        }
+        const normalized = normalizeProject(record.project);
+        setProject(normalized);
+        setSavedFingerprint('');
+        setModal(null);
+        setRecoveryChecked(true);
+        setAutosaveUi({ state: 'saved', savedAt: record.savedAt });
+        setStatus(record.source === 'previous' ? '一つ前の自動保存から作業を復元しました' : '前回の作業を復元しました');
+    }
+    function discardAutosave() {
+        setModal(null);
+        setRecoveryChecked(true);
+        (0, storage_1.clearAutosave)().then(() => setAutosaveUi({ state: 'waiting' })).catch(() => setAutosaveUi({ state: 'error' }));
+        setStatus('前回の自動保存を破棄しました');
     }
     async function screenshotInstant() {
         if (!svgRef.current || screenshotBusy)
@@ -3307,12 +3595,13 @@ function App() {
             React.createElement("nav", { className: "menu-actions", "aria-label": "\u30E1\u30CB\u30E5\u30FC" },
                 React.createElement("button", { type: "button", onClick: newProject },
                     React.createElement("span", null, "\u65B0\u898F")),
-                React.createElement("button", { type: "button", onClick: () => projectInputRef.current?.click() },
+                React.createElement("button", { type: "button", onClick: requestProjectLoad, title: "\u30D7\u30ED\u30B8\u30A7\u30AF\u30C8\u3092\u8AAD\u307F\u8FBC\u3080\uFF08Ctrl/Cmd\uFF0BO\uFF09" },
                     React.createElement(Icon_1.Icon, { name: "open", size: 19 }),
                     React.createElement("span", null, "\u8AAD\u8FBC")),
-                React.createElement("button", { type: "button", onClick: saveProject },
+                React.createElement("button", { type: "button", className: isDirty ? 'is-unsaved' : 'is-saved', onClick: saveProject, title: "\u30D7\u30ED\u30B8\u30A7\u30AF\u30C8\u3092\u4FDD\u5B58\uFF08Ctrl/Cmd\uFF0BS\uFF09" },
                     React.createElement(Icon_1.Icon, { name: "save", size: 19 }),
-                    React.createElement("span", null, "\u4FDD\u5B58")),
+                    React.createElement("span", null, "\u4FDD\u5B58"),
+                    isDirty && React.createElement("i", { className: "unsaved-dot", "aria-label": "\u672A\u4FDD\u5B58\u306E\u5909\u66F4\u3042\u308A" })),
                 React.createElement("span", { className: "menu-divider" }),
                 React.createElement("button", { type: "button", "aria-label": "\u5143\u306B\u623B\u3059", title: "\u5143\u306B\u623B\u3059", onClick: undo, disabled: undoStack.current.length === 0, "data-history": historyRevision },
                     React.createElement(Icon_1.Icon, { name: "undo", size: 19 })),
@@ -3351,7 +3640,7 @@ function App() {
                 React.createElement("output", null,
                     Math.round(view.zoom * 100),
                     "%")),
-            React.createElement("input", { className: "project-title", value: project.title, "aria-label": "\u30D7\u30ED\u30B8\u30A7\u30AF\u30C8\u540D", title: "\u30D7\u30ED\u30B8\u30A7\u30AF\u30C8\u540D", onChange: (event) => setProject((current) => ({ ...current, title: event.target.value })) }),
+            React.createElement("input", { className: `project-title ${isDirty ? 'is-unsaved' : ''}`, value: project.title, "aria-label": "\u30D7\u30ED\u30B8\u30A7\u30AF\u30C8\u540D", title: "\u30D7\u30ED\u30B8\u30A7\u30AF\u30C8\u540D", onChange: (event) => setProject((current) => ({ ...current, title: event.target.value })) }),
             React.createElement("button", { type: "button", className: "wordmark", onClick: () => setModal({ kind: 'about' }) },
                 React.createElement("strong", null, "Graphanta"),
                 React.createElement("span", null, "visual mathematics"))),
@@ -3404,9 +3693,13 @@ function App() {
                         React.createElement("strong", null, defaults_1.TOOL_LABELS[activeTool]),
                         "\u3000",
                         status),
-                    React.createElement("span", null,
+                    React.createElement("span", { className: `save-status save-${autosaveUi.state}`, title: autosaveLabel },
+                        React.createElement("i", null),
                         project.objects.length,
-                        "\u8981\u7D20\u30FB\u30AA\u30D5\u30E9\u30A4\u30F3\u4FDD\u5B58"))),
+                        "\u8981\u7D20\u30FB",
+                        isDirty ? '未保存' : '保存済み',
+                        "\u30FB",
+                        autosaveLabel))),
             settings.toolbarSide === 'right' && React.createElement(Toolbar_1.Toolbar, { tools: visibleTools, activeTool: activeTool, side: "right", onChange: chooseTool }),
             React.createElement("aside", { className: "side-panels" },
                 React.createElement("section", { className: `side-panel tweak-panel ${panelCollapsed.tweak ? 'collapsed' : ''}` },
@@ -3431,6 +3724,26 @@ function App() {
         presentation && React.createElement("button", { className: "exit-presentation", type: "button", onClick: togglePresentation }, "\u767A\u8868\u30E2\u30FC\u30C9\u3092\u7D42\u4E86"),
         React.createElement("input", { ref: projectInputRef, type: "file", accept: ".json,.graphanta.json,application/json", hidden: true, onChange: loadProjectFile }),
         React.createElement("input", { ref: settingsInputRef, type: "file", accept: ".json,.graphanta-settings.json,application/json", hidden: true, onChange: loadSettingsFile }),
+        modal?.kind === 'recovery' && React.createElement(Modal_1.Modal, { title: "\u524D\u56DE\u306E\u4F5C\u696D\u3092\u78BA\u8A8D", onClose: discardAutosave },
+            React.createElement("div", { className: "recovery-box" },
+                React.createElement("div", { className: "recovery-icon" },
+                    React.createElement(Icon_1.Icon, { name: "history", size: 28 })),
+                React.createElement("div", null,
+                    React.createElement("h3", null, modal.record.project.title || '無題のプロジェクト'),
+                    React.createElement("p", null,
+                        formatAutosaveTime(modal.record.savedAt),
+                        " \u306B\u81EA\u52D5\u4FDD\u5B58\u3055\u308C\u305F\u4F5C\u696D\u304C\u3042\u308A\u307E\u3059\u3002"),
+                    React.createElement("dl", null,
+                        React.createElement("div", null,
+                            React.createElement("dt", null, "\u8981\u7D20"),
+                            React.createElement("dd", null, modal.record.project.objects.length)),
+                        React.createElement("div", null,
+                            React.createElement("dt", null, "\u4FDD\u5B58\u5143"),
+                            React.createElement("dd", null, modal.record.source === 'previous' ? '一つ前のバックアップ' : '最新の自動保存'))),
+                    modal.record.source === 'previous' && React.createElement("p", { className: "recovery-warning" }, "\u6700\u65B0\u306E\u81EA\u52D5\u4FDD\u5B58\u3092\u8AAD\u307F\u53D6\u308C\u306A\u304B\u3063\u305F\u305F\u3081\u3001\u4E00\u3064\u524D\u306E\u6B63\u5E38\u306A\u30D0\u30C3\u30AF\u30A2\u30C3\u30D7\u3092\u8868\u793A\u3057\u3066\u3044\u307E\u3059\u3002")),
+                React.createElement("div", { className: "modal-actions recovery-actions" },
+                    React.createElement("button", { type: "button", onClick: discardAutosave }, "\u7834\u68C4\u3057\u3066\u958B\u59CB"),
+                    React.createElement("button", { type: "button", className: "primary-button", onClick: () => restoreAutosave(modal.record) }, "\u5FA9\u5143\u3059\u308B")))),
         modal?.kind === 'settings' && React.createElement(Modal_1.Modal, { title: "\u74B0\u5883\u8A2D\u5B9A", wide: true, onClose: () => setModal(null) },
             React.createElement(SettingsEditor, { settings: settings, onChange: (next) => setSettings(normalizeSettings(next)), onSave: () => (0, storage_1.downloadJson)('graphanta-settings.json', settings), onLoad: () => settingsInputRef.current?.click(), onReset: () => setSettings((0, defaults_1.createDefaultSettings)()) })),
         modal?.kind === 'text' && React.createElement(Modal_1.Modal, { title: modal.objectId ? '文字を編集' : '文字を追加', onClose: () => setModal(null) },
@@ -4138,6 +4451,10 @@ function Icon({ name, size = 22 }) {
             React.createElement("path", { d: "M9 18h6M10 21h4" }),
             React.createElement("path", { d: "M8.2 14.8A6 6 0 1115.8 14.8c-.9.8-1.3 1.6-1.4 2.2h-4.8c-.1-.6-.5-1.4-1.4-2.2z" }),
             React.createElement("path", { d: "M12 2V1M4.9 4.9l-.7-.7M19.1 4.9l.7-.7M3 12H2M22 12h-1" }));
+        case 'history': return React.createElement("svg", { ...common },
+            React.createElement("path", { d: "M4 7v5h5" }),
+            React.createElement("path", { d: "M5.5 9A8 8 0 1120 15" }),
+            React.createElement("path", { d: "M12 7v5l3 2" }));
         case 'blank': return React.createElement("svg", { ...common },
             React.createElement("rect", { x: "4", y: "4", width: "16", height: "16", rx: "2" }));
         case 'grid': return React.createElement("svg", { ...common },
@@ -4374,7 +4691,7 @@ exports.TOOL_LABELS = exports.BASIC_TOOLS = exports.ALL_TOOLS = exports.APP_VERS
 exports.createInitialProject = createInitialProject;
 exports.createDefaultSettings = createDefaultSettings;
 const geometry_1 = require("./lib/geometry");
-exports.APP_VERSION = '0.3.0-alpha.2';
+exports.APP_VERSION = '0.4.0-alpha.1';
 exports.ALL_TOOLS = [
     'select', 'pan', 'zoom', 'pen', 'line', 'arrow', 'rectangle', 'ellipse', 'polygon',
     'text', 'math', 'array', 'ball', 'person', 'bundle', 'segment', 'function',
@@ -4585,10 +4902,9 @@ function tokenize(source) {
     return tokens;
 }
 class MathParser {
-    tokens;
-    index = 0;
     constructor(tokens) {
         this.tokens = tokens;
+        this.index = 0;
     }
     parse() {
         if (this.tokens.length === 0)
@@ -4998,12 +5314,10 @@ function tokenize(input) {
     return tokens;
 }
 class Parser {
-    tokens;
-    variables;
-    index = 0;
     constructor(tokens, variables) {
         this.tokens = tokens;
         this.variables = variables;
+        this.index = 0;
     }
     parse() {
         const value = this.parseAdditive();
@@ -5301,12 +5615,15 @@ exports.saveSettingsLocal = saveSettingsLocal;
 exports.loadSettingsLocal = loadSettingsLocal;
 exports.saveAutosave = saveAutosave;
 exports.loadAutosave = loadAutosave;
+exports.clearAutosave = clearAutosave;
 exports.downloadJson = downloadJson;
 exports.readJsonFile = readJsonFile;
 const SETTINGS_KEY = 'graphanta.settings.v1';
 const DB_NAME = 'graphanta-local';
 const STORE_NAME = 'documents';
-const AUTOSAVE_KEY = 'autosave';
+const AUTOSAVE_CURRENT_KEY = 'autosave.current';
+const AUTOSAVE_PREVIOUS_KEY = 'autosave.previous';
+const AUTOSAVE_LEGACY_KEY = 'autosave';
 function canUseLocalStorage() {
     try {
         const key = '__graphanta_storage_test__';
@@ -5365,16 +5682,69 @@ function openDatabase() {
         request.onerror = () => reject(request.error);
     });
 }
+function looksLikeProject(value) {
+    if (!value || typeof value !== 'object')
+        return false;
+    const candidate = value;
+    return candidate.format === 'graphanta-project'
+        && candidate.schemaVersion === 1
+        && Array.isArray(candidate.objects)
+        && Array.isArray(candidate.expressions)
+        && Array.isArray(candidate.variables);
+}
+function normalizeAutosave(value, source) {
+    if (looksLikeProject(value)) {
+        return {
+            format: 'graphanta-autosave',
+            schemaVersion: 1,
+            savedAt: value.updatedAt || new Date(0).toISOString(),
+            appVersion: value.appVersion || 'unknown',
+            project: value,
+            source: source ?? 'legacy',
+        };
+    }
+    if (!value || typeof value !== 'object')
+        return null;
+    const candidate = value;
+    if (candidate.format !== 'graphanta-autosave' || candidate.schemaVersion !== 1 || !looksLikeProject(candidate.project))
+        return null;
+    return {
+        format: 'graphanta-autosave',
+        schemaVersion: 1,
+        savedAt: typeof candidate.savedAt === 'string' ? candidate.savedAt : candidate.project.updatedAt,
+        appVersion: typeof candidate.appVersion === 'string' ? candidate.appVersion : candidate.project.appVersion,
+        project: candidate.project,
+        source,
+    };
+}
 async function saveAutosave(project) {
     const db = await openDatabase();
+    const record = {
+        format: 'graphanta-autosave',
+        schemaVersion: 1,
+        savedAt: new Date().toISOString(),
+        appVersion: project.appVersion,
+        project: structuredClone(project),
+        source: 'current',
+    };
     try {
         await new Promise((resolve, reject) => {
             const transaction = db.transaction(STORE_NAME, 'readwrite');
-            transaction.objectStore(STORE_NAME).put(project, AUTOSAVE_KEY);
+            const store = transaction.objectStore(STORE_NAME);
+            const currentRequest = store.get(AUTOSAVE_CURRENT_KEY);
+            currentRequest.onsuccess = () => {
+                const current = normalizeAutosave(currentRequest.result, 'current');
+                if (current)
+                    store.put({ ...current, source: undefined }, AUTOSAVE_PREVIOUS_KEY);
+                store.put({ ...record, source: undefined }, AUTOSAVE_CURRENT_KEY);
+                store.delete(AUTOSAVE_LEGACY_KEY);
+            };
+            currentRequest.onerror = () => reject(currentRequest.error);
             transaction.oncomplete = () => resolve();
             transaction.onerror = () => reject(transaction.error);
             transaction.onabort = () => reject(transaction.error);
         });
+        return record;
     }
     finally {
         db.close();
@@ -5383,11 +5753,36 @@ async function saveAutosave(project) {
 async function loadAutosave() {
     const db = await openDatabase();
     try {
-        return await new Promise((resolve, reject) => {
+        const values = await new Promise((resolve, reject) => {
             const transaction = db.transaction(STORE_NAME, 'readonly');
-            const request = transaction.objectStore(STORE_NAME).get(AUTOSAVE_KEY);
-            request.onsuccess = () => resolve(request.result ?? null);
-            request.onerror = () => reject(request.error);
+            const store = transaction.objectStore(STORE_NAME);
+            const current = store.get(AUTOSAVE_CURRENT_KEY);
+            const previous = store.get(AUTOSAVE_PREVIOUS_KEY);
+            const legacy = store.get(AUTOSAVE_LEGACY_KEY);
+            transaction.oncomplete = () => resolve({ current: current.result, previous: previous.result, legacy: legacy.result });
+            transaction.onerror = () => reject(transaction.error);
+            transaction.onabort = () => reject(transaction.error);
+        });
+        return normalizeAutosave(values.current, 'current')
+            ?? normalizeAutosave(values.previous, 'previous')
+            ?? normalizeAutosave(values.legacy, 'legacy');
+    }
+    finally {
+        db.close();
+    }
+}
+async function clearAutosave() {
+    const db = await openDatabase();
+    try {
+        await new Promise((resolve, reject) => {
+            const transaction = db.transaction(STORE_NAME, 'readwrite');
+            const store = transaction.objectStore(STORE_NAME);
+            store.delete(AUTOSAVE_CURRENT_KEY);
+            store.delete(AUTOSAVE_PREVIOUS_KEY);
+            store.delete(AUTOSAVE_LEGACY_KEY);
+            transaction.oncomplete = () => resolve();
+            transaction.onerror = () => reject(transaction.error);
+            transaction.onabort = () => reject(transaction.error);
         });
     }
     finally {

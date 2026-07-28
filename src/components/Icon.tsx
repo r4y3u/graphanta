@@ -1,7 +1,7 @@
 import type { ToolId } from '../types';
 
 interface IconProps {
-  name: ToolId | 'undo' | 'redo' | 'save' | 'open' | 'camera' | 'settings' | 'fullscreen' | 'delete' | 'duplicate' | 'chevron' | 'hint' | 'blank' | 'grid' | 'axes' | 'numberLine' | 'tape' | 'measureSegment';
+  name: ToolId | 'undo' | 'redo' | 'save' | 'open' | 'camera' | 'settings' | 'fullscreen' | 'delete' | 'duplicate' | 'chevron' | 'hint' | 'history' | 'blank' | 'grid' | 'axes' | 'numberLine' | 'tape' | 'measureSegment';
   size?: number;
 }
 
@@ -36,6 +36,7 @@ export function Icon({ name, size = 22 }: IconProps) {
     case 'duplicate': return <svg {...common}><rect x="8" y="8" width="11" height="11" rx="1"/><path d="M16 8V5H5v11h3"/></svg>;
     case 'chevron': return <svg {...common}><path d="M8 10l4 4 4-4"/></svg>;
     case 'hint': return <svg {...common}><path d="M9 18h6M10 21h4"/><path d="M8.2 14.8A6 6 0 1115.8 14.8c-.9.8-1.3 1.6-1.4 2.2h-4.8c-.1-.6-.5-1.4-1.4-2.2z"/><path d="M12 2V1M4.9 4.9l-.7-.7M19.1 4.9l.7-.7M3 12H2M22 12h-1"/></svg>;
+    case 'history': return <svg {...common}><path d="M4 7v5h5"/><path d="M5.5 9A8 8 0 1120 15"/><path d="M12 7v5l3 2"/></svg>;
     case 'blank': return <svg {...common}><rect x="4" y="4" width="16" height="16" rx="2"/></svg>;
     case 'grid': return <svg {...common}><path d="M4 4h16v16H4zM9.33 4v16M14.67 4v16M4 9.33h16M4 14.67h16"/></svg>;
     case 'axes': return <svg {...common}><path d="M3 12h18M12 3v18M18 9l3 3-3 3M9 6l3-3 3 3"/></svg>;

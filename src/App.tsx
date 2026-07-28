@@ -19,12 +19,14 @@ import { MathPreview, StructuredMath } from './components/StructuredMath';
 import { measureMathExpression } from './lib/math-layout';
 import { captureSvgAsPng, composeFourCaptures, copySvgPngToClipboard, createPngPreviewWindow, openSvgAsPng, showPngInPreview, type PngCapture } from './lib/screenshot';
 import {
+  clearAutosave,
   downloadJson,
   loadAutosave,
   loadSettingsLocal,
   readJsonFile,
   saveAutosave,
   saveSettingsLocal,
+  type AutosaveRecord,
 } from './lib/storage';
 import type {
   ArrayObject,
@@ -110,6 +112,7 @@ type Interaction =
 
 type ModalState =
   | { kind: 'settings' }
+  | { kind: 'recovery'; record: AutosaveRecord }
   | { kind: 'text'; point: Point; value: string; objectId?: string }
   | { kind: 'math'; point: Point; value: string; expressionId?: string; objectId?: string }
   | { kind: 'about' }
@@ -175,6 +178,34 @@ const MIN_DRAW_SIZE = 4;
 const TWO_PI = Math.PI * 2;
 const RAD_TO_DEG = 180 / Math.PI;
 const DEG_TO_RAD = Math.PI / 180;
+const MAX_PROJECT_FILE_BYTES = 20 * 1024 * 1024;
+
+type AutosaveUiState =
+  | { state: 'waiting' | 'saving' | 'error'; savedAt?: string }
+  | { state: 'saved'; savedAt: string };
+
+function projectFingerprint(project: GraphantaProject): string {
+  const { updatedAt: _updatedAt, appVersion: _appVersion, ...content } = project;
+  return JSON.stringify(content);
+}
+
+function hasRecoverableContent(project: GraphantaProject): boolean {
+  if (project.objects.length > 0) return true;
+  if (project.title.trim() && project.title !== '無題のプロジェクト') return true;
+  if (project.expressions.length !== 1) return true;
+  const expression = project.expressions[0];
+  if (!expression || expression.label !== '式1' || expression.source.trim() !== 'a=4' || expression.visible !== true) return true;
+  if (project.variables.length !== 1) return true;
+  const variable = project.variables[0];
+  return !variable || variable.name !== 'a' || variable.value !== 4 || variable.min !== 1 || variable.max !== 12 || variable.step !== 1;
+}
+
+function formatAutosaveTime(value?: string): string {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  return new Intl.DateTimeFormat('ja-JP', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' }).format(date);
+}
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
@@ -278,6 +309,13 @@ function normalizeSettings(value: GraphantaSettings | null): GraphantaSettings {
 }
 
 function normalizeObject(object: GraphicObject): GraphicObject {
+  object = {
+    ...object,
+    stroke: typeof object.stroke === 'string' ? object.stroke : '#25314d',
+    fill: typeof object.fill === 'string' ? object.fill : 'transparent',
+    strokeWidth: Number.isFinite(object.strokeWidth) ? Math.max(0.1, object.strokeWidth) : 2.5,
+    opacity: Number.isFinite(object.opacity) ? clamp(object.opacity, 0, 1) : 1,
+  } as GraphicObject;
   if (object.type === 'arrow') return { ...object, arrowSize: object.arrowSize ?? 14, bindings: object.bindings ?? {} };
   if (object.type === 'rectangle' || object.type === 'array' || object.type === 'pen' || object.type === 'polygon') {
     if (object.type === 'array' && ((object.rowsExpr === '1' && object.colsExpr === '1' && (object.symbol === 'ball' || object.symbol === 'person')) || object.symbol === 'bundle')) {
@@ -341,10 +379,90 @@ function normalizeProject(value: GraphantaProject): GraphantaProject {
   };
 }
 
+function isFinitePointData(value: unknown): value is Point {
+  if (!value || typeof value !== 'object') return false;
+  const point = value as Partial<Point>;
+  return Number.isFinite(point.x) && Number.isFinite(point.y);
+}
+
+function isGraphicObjectData(value: unknown): value is GraphicObject {
+  if (!value || typeof value !== 'object') return false;
+  const object = value as Partial<GraphicObject> & Record<string, unknown>;
+  if (typeof object.id !== 'string' || typeof object.type !== 'string') return false;
+  switch (object.type) {
+    case 'pen':
+    case 'polygon':
+      return Array.isArray(object.points) && object.points.every(isFinitePointData);
+    case 'line':
+    case 'arrow':
+    case 'segment':
+      return isFinitePointData(object.start) && isFinitePointData(object.end);
+    case 'rectangle':
+    case 'array':
+      return Number.isFinite(object.x) && Number.isFinite(object.y) && Number.isFinite(object.width) && Number.isFinite(object.height);
+    case 'ellipse':
+      return Number.isFinite(object.cx) && Number.isFinite(object.cy) && Number.isFinite(object.rx) && Number.isFinite(object.ry);
+    case 'text':
+      return Number.isFinite(object.x) && Number.isFinite(object.y) && typeof object.text === 'string' && Number.isFinite(object.fontSize);
+    case 'math':
+      return Number.isFinite(object.x) && Number.isFinite(object.y) && typeof object.expression === 'string' && Number.isFinite(object.fontSize);
+    default:
+      return false;
+  }
+}
+
+function isCanvasData(value: unknown): boolean {
+  if (!value || typeof value !== 'object') return false;
+  const canvas = value as Record<string, unknown>;
+  return Number.isFinite(canvas.width)
+    && Number.isFinite(canvas.height)
+    && typeof canvas.background === 'string'
+    && typeof canvas.gridVisible === 'boolean'
+    && typeof canvas.axesVisible === 'boolean'
+    && Number.isFinite(canvas.gridSize)
+    && Number.isFinite(canvas.coordinatePrecision)
+    && Number.isFinite(canvas.tickInterval)
+    && Number.isFinite(canvas.labelInterval)
+    && typeof canvas.snapGrid === 'boolean'
+    && typeof canvas.snapPoints === 'boolean';
+}
+
+function isExpressionData(value: unknown): boolean {
+  if (!value || typeof value !== 'object') return false;
+  const expression = value as Record<string, unknown>;
+  return typeof expression.id === 'string'
+    && typeof expression.label === 'string'
+    && typeof expression.source === 'string'
+    && typeof expression.visible === 'boolean';
+}
+
+function isVariableData(value: unknown): boolean {
+  if (!value || typeof value !== 'object') return false;
+  const variable = value as Record<string, unknown>;
+  return typeof variable.id === 'string'
+    && typeof variable.name === 'string'
+    && Number.isFinite(variable.value)
+    && Number.isFinite(variable.min)
+    && Number.isFinite(variable.max)
+    && Number.isFinite(variable.step);
+}
+
 function isProject(value: unknown): value is GraphantaProject {
   if (!value || typeof value !== 'object') return false;
   const candidate = value as Partial<GraphantaProject>;
-  return candidate.format === 'graphanta-project' && candidate.schemaVersion === 1 && Array.isArray(candidate.objects);
+  return candidate.format === 'graphanta-project'
+    && candidate.schemaVersion === 1
+    && typeof candidate.title === 'string'
+    && isCanvasData(candidate.canvas)
+    && Array.isArray(candidate.objects)
+    && candidate.objects.length <= 100000
+    && candidate.objects.every(isGraphicObjectData)
+    && Array.isArray(candidate.expressions)
+    && candidate.expressions.length <= 10000
+    && candidate.expressions.every(isExpressionData)
+    && Array.isArray(candidate.variables)
+    && candidate.variables.length <= 10000
+    && candidate.variables.every(isVariableData);
 }
 
 function isSettings(value: unknown): value is GraphantaSettings {
@@ -757,7 +875,9 @@ function resizeGraphicObject(
 
 function App() {
   const initialSettings = useMemo(() => normalizeSettings(loadSettingsLocal()), []);
-  const [project, setProject] = useState<GraphantaProject>(() => createInitialProject());
+  const initialProject = useMemo(() => createInitialProject(), []);
+  const [project, setProject] = useState<GraphantaProject>(initialProject);
+  const [savedFingerprint, setSavedFingerprint] = useState(() => projectFingerprint(initialProject));
   const [settings, setSettings] = useState<GraphantaSettings>(initialSettings);
   const [presets, setPresets] = useState<ToolPresets>(() => createPresets(initialSettings));
   const [activeTool, setActiveTool] = useState<ToolId>('select');
@@ -772,7 +892,8 @@ function App() {
   const [modal, setModal] = useState<ModalState>(null);
   const [presentation, setPresentation] = useState(false);
   const [status, setStatus] = useState('準備完了');
-  const [restored, setRestored] = useState(false);
+  const [recoveryChecked, setRecoveryChecked] = useState(false);
+  const [autosaveUi, setAutosaveUi] = useState<AutosaveUiState>({ state: 'waiting' });
   const svgRef = useRef<SVGSVGElement | null>(null);
   const projectInputRef = useRef<HTMLInputElement | null>(null);
   const settingsInputRef = useRef<HTMLInputElement | null>(null);
@@ -805,6 +926,15 @@ function App() {
   const coordinateOrigin = useMemo<Point>(() => ({ x: project.canvas.width / 2, y: project.canvas.height / 2 }), [project.canvas.width, project.canvas.height]);
   const visibleWorldWidth = viewportSize.width / view.zoom;
   const visibleWorldHeight = viewportSize.height / view.zoom;
+  const currentFingerprint = useMemo(() => projectFingerprint(project), [project]);
+  const isDirty = currentFingerprint !== savedFingerprint;
+  const autosaveLabel = autosaveUi.state === 'saving'
+    ? '自動保存中'
+    : autosaveUi.state === 'error'
+      ? '自動保存できません'
+      : autosaveUi.state === 'saved'
+        ? `自動保存 ${formatAutosaveTime(autosaveUi.savedAt)}`
+        : '自動保存待機';
 
   const worldToCoordinate = useCallback((point: Point): Point => ({
     x: roundValue((point.x - coordinateOrigin.x) / coordinateUnitPx),
@@ -1045,21 +1175,58 @@ function App() {
   }, [selectedObject]);
 
   useEffect(() => {
-    if (restored || !settings.autoRestore) return;
-    setRestored(true);
+    if (recoveryChecked) return;
+    if (!settings.autoRestore) {
+      setRecoveryChecked(true);
+      return;
+    }
+    let cancelled = false;
     loadAutosave().then((saved) => {
-      if (!saved || saved.objects.length === 0) return;
-      if (window.confirm('前回の作業を復元しますか？')) {
-        setProject(normalizeProject(saved));
-        setStatus('前回の作業を復元しました');
+      if (cancelled) return;
+      if (!saved || !hasRecoverableContent(saved.project)) {
+        setRecoveryChecked(true);
+        return;
       }
-    }).catch(() => setStatus('自動復旧データを確認できませんでした'));
-  }, [restored, settings.autoRestore]);
+      setModal({ kind: 'recovery', record: saved });
+    }).catch(() => {
+      if (cancelled) return;
+      setRecoveryChecked(true);
+      setAutosaveUi({ state: 'error' });
+      setStatus('自動復旧データを確認できませんでした');
+    });
+    return () => { cancelled = true; };
+  }, [recoveryChecked, settings.autoRestore]);
 
   useEffect(() => {
-    const timer = window.setTimeout(() => saveAutosave(project).catch(() => undefined), 700);
-    return () => window.clearTimeout(timer);
-  }, [project]);
+    if (!recoveryChecked) return;
+    let cancelled = false;
+    setAutosaveUi((current) => ({ state: 'saving', savedAt: current.savedAt }));
+    const timer = window.setTimeout(() => {
+      saveAutosave(project).then((record) => {
+        if (!cancelled) setAutosaveUi({ state: 'saved', savedAt: record.savedAt });
+      }).catch(() => {
+        if (!cancelled) setAutosaveUi((current) => ({ state: 'error', savedAt: current.savedAt }));
+      });
+    }, 800);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [project, recoveryChecked]);
+
+  useEffect(() => {
+    const beforeUnload = (event: BeforeUnloadEvent) => {
+      if (!isDirty) return;
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    window.addEventListener('beforeunload', beforeUnload);
+    return () => window.removeEventListener('beforeunload', beforeUnload);
+  }, [isDirty]);
+
+  useEffect(() => {
+    document.title = `${isDirty ? '● ' : ''}Graphanta v${APP_VERSION}`;
+  }, [isDirty]);
 
   useEffect(() => {
     const element = plotViewportRef.current;
@@ -1091,7 +1258,16 @@ function App() {
       const target = event.target as HTMLElement | null;
       if (target?.matches('input, textarea, select, [contenteditable="true"]')) return;
       const command = event.ctrlKey || event.metaKey;
-      if (command && event.key.toLowerCase() === 'z') {
+      if (command && event.key.toLowerCase() === 's') {
+        event.preventDefault();
+        saveProject();
+      } else if (command && event.key.toLowerCase() === 'o') {
+        event.preventDefault();
+        requestProjectLoad();
+      } else if (command && event.key.toLowerCase() === 'n') {
+        event.preventDefault();
+        newProject();
+      } else if (command && event.key.toLowerCase() === 'z') {
         event.preventDefault();
         event.shiftKey ? redo() : undo();
       } else if (command && event.key.toLowerCase() === 'y') {
@@ -1104,6 +1280,11 @@ function App() {
         event.preventDefault();
         deleteSelected();
       } else if (event.key === 'Escape') {
+        if (modal?.kind === 'recovery') {
+          event.preventDefault();
+          discardAutosave();
+          return;
+        }
         if (gestureSnapshot.current) {
           setProject(gestureSnapshot.current);
           gestureSnapshot.current = null;
@@ -1133,7 +1314,7 @@ function App() {
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [deleteSelected, groupSelected, mutateProject, polygonPoints.length, redo, selectedResolvedObjects, undo, ungroupSelected]);
+  }, [deleteSelected, groupSelected, isDirty, modal, mutateProject, polygonPoints.length, project, redo, selectedResolvedObjects, undo, ungroupSelected]);
 
   const rawWorldPoint = useCallback((clientX: number, clientY: number): Point => {
     const svg = svgRef.current;
@@ -2199,9 +2380,17 @@ function App() {
   const coordinateGridStep = coordinateUnitPx * Math.max(project.canvas.tickInterval || 1, 0.0001);
 
   function saveProject() {
-    const safeTitle = project.title.trim().replace(/[\\/:*?"<>|]/g, '_') || 'graphanta-project';
-    downloadJson(`${safeTitle}.graphanta.json`, project);
+    const safeTitle = project.title.trim().replace(/[\/:*?"<>|]/g, '_') || 'graphanta-project';
+    const snapshot = { ...project, appVersion: APP_VERSION, updatedAt: new Date().toISOString() };
+    downloadJson(`${safeTitle}.graphanta.json`, snapshot);
+    setProject(snapshot);
+    setSavedFingerprint(projectFingerprint(snapshot));
     setStatus('プロジェクトファイルを保存しました');
+  }
+
+  function requestProjectLoad() {
+    if (isDirty && !window.confirm('未保存の変更があります。現在の作業を閉じて読み込みますか？')) return;
+    projectInputRef.current?.click();
   }
 
   async function loadProjectFile(event: ChangeEvent<HTMLInputElement>) {
@@ -2209,10 +2398,13 @@ function App() {
     event.target.value = '';
     if (!file) return;
     try {
+      if (file.size > MAX_PROJECT_FILE_BYTES) throw new Error('プロジェクトファイルが大きすぎます（上限20MB）');
       const data = await readJsonFile<unknown>(file);
-      if (!isProject(data)) throw new Error('Graphantaのプロジェクト形式ではありません');
+      if (!isProject(data)) throw new Error('Graphantaのプロジェクト形式ではないか、内容が破損しています');
+      const normalized = normalizeProject(data);
       commitHistory(project);
-      setProject(normalizeProject(data));
+      setProject(normalized);
+      setSavedFingerprint(projectFingerprint(normalized));
       setSelectedId(null);
       setView({ x: 0, y: 0, zoom: 1 });
       setStatus('プロジェクトを読み込みました');
@@ -2236,12 +2428,37 @@ function App() {
   }
 
   function newProject() {
-    if (project.objects.length > 0 && !window.confirm('現在の作業を閉じて新規作成しますか？')) return;
+    if (isDirty && !window.confirm('未保存の変更があります。現在の作業を閉じて新規作成しますか？')) return;
     commitHistory(project);
-    setProject(createInitialProject());
+    const next = createInitialProject();
+    setProject(next);
+    setSavedFingerprint(projectFingerprint(next));
     setSelectedId(null);
     setView({ x: 0, y: 0, zoom: 1 });
     setStatus('新しいプロジェクトを作成しました');
+  }
+
+  function restoreAutosave(record: AutosaveRecord) {
+    if (!isProject(record.project)) {
+      window.alert('自動保存データが破損しているため復元できませんでした');
+      setModal(null);
+      setRecoveryChecked(true);
+      return;
+    }
+    const normalized = normalizeProject(record.project);
+    setProject(normalized);
+    setSavedFingerprint('');
+    setModal(null);
+    setRecoveryChecked(true);
+    setAutosaveUi({ state: 'saved', savedAt: record.savedAt });
+    setStatus(record.source === 'previous' ? '一つ前の自動保存から作業を復元しました' : '前回の作業を復元しました');
+  }
+
+  function discardAutosave() {
+    setModal(null);
+    setRecoveryChecked(true);
+    clearAutosave().then(() => setAutosaveUi({ state: 'waiting' })).catch(() => setAutosaveUi({ state: 'error' }));
+    setStatus('前回の自動保存を破棄しました');
   }
 
   async function screenshotInstant() {
@@ -2345,8 +2562,8 @@ function App() {
         </button>
         <nav className="menu-actions" aria-label="メニュー">
           <button type="button" onClick={newProject}><span>新規</span></button>
-          <button type="button" onClick={() => projectInputRef.current?.click()}><Icon name="open" size={19} /><span>読込</span></button>
-          <button type="button" onClick={saveProject}><Icon name="save" size={19} /><span>保存</span></button>
+          <button type="button" onClick={requestProjectLoad} title="プロジェクトを読み込む（Ctrl/Cmd＋O）"><Icon name="open" size={19} /><span>読込</span></button>
+          <button type="button" className={isDirty ? 'is-unsaved' : 'is-saved'} onClick={saveProject} title="プロジェクトを保存（Ctrl/Cmd＋S）"><Icon name="save" size={19} /><span>保存</span>{isDirty && <i className="unsaved-dot" aria-label="未保存の変更あり" />}</button>
           <span className="menu-divider" />
           <button type="button" aria-label="元に戻す" title="元に戻す" onClick={undo} disabled={undoStack.current.length === 0} data-history={historyRevision}><Icon name="undo" size={19} /></button>
           <button type="button" aria-label="やり直す" title="やり直す" onClick={redo} disabled={redoStack.current.length === 0} data-history={historyRevision}><Icon name="redo" size={19} /></button>
@@ -2363,7 +2580,7 @@ function App() {
           <button type="button" aria-label="設定" title="設定" onClick={() => setModal({ kind: 'settings' })}><Icon name="settings" size={19} /></button>
         </nav>
         <div className="view-control" aria-label="表示倍率"><button type="button" onClick={() => setView({ x: coordinateOrigin.x - viewportSize.width / 2, y: coordinateOrigin.y - viewportSize.height / 2, zoom: 1 })}>全体表示</button><output>{Math.round(view.zoom * 100)}%</output></div>
-        <input className="project-title" value={project.title} aria-label="プロジェクト名" title="プロジェクト名" onChange={(event) => setProject((current) => ({ ...current, title: event.target.value }))} />
+        <input className={`project-title ${isDirty ? 'is-unsaved' : ''}`} value={project.title} aria-label="プロジェクト名" title="プロジェクト名" onChange={(event) => setProject((current) => ({ ...current, title: event.target.value }))} />
         <button type="button" className="wordmark" onClick={() => setModal({ kind: 'about' })}><strong>Graphanta</strong><span>visual mathematics</span></button>
       </header>
 
@@ -2422,7 +2639,7 @@ function App() {
               {contextToolMenu.tools.map((tool) => <button key={tool} type="button" role="menuitem" className={activeTool === tool ? 'is-active' : ''} title={TOOL_LABELS[tool]} onClick={() => chooseTool(tool)}><Icon name={tool} size={21} /><span>{TOOL_LABELS[tool]}</span></button>)}
             </div>}
           </div>
-          <footer className="status-bar"><span><strong>{TOOL_LABELS[activeTool]}</strong>　{status}</span><span>{project.objects.length}要素・オフライン保存</span></footer>
+          <footer className="status-bar"><span><strong>{TOOL_LABELS[activeTool]}</strong>　{status}</span><span className={`save-status save-${autosaveUi.state}`} title={autosaveLabel}><i />{project.objects.length}要素・{isDirty ? '未保存' : '保存済み'}・{autosaveLabel}</span></footer>
         </section>
         {settings.toolbarSide === 'right' && <Toolbar tools={visibleTools} activeTool={activeTool} side="right" onChange={chooseTool} />}
 
@@ -2481,6 +2698,11 @@ function App() {
       <input ref={projectInputRef} type="file" accept=".json,.graphanta.json,application/json" hidden onChange={loadProjectFile} />
       <input ref={settingsInputRef} type="file" accept=".json,.graphanta-settings.json,application/json" hidden onChange={loadSettingsFile} />
 
+      {modal?.kind === 'recovery' && <Modal title="前回の作業を確認" onClose={discardAutosave}><div className="recovery-box">
+        <div className="recovery-icon"><Icon name="history" size={28} /></div>
+        <div><h3>{modal.record.project.title || '無題のプロジェクト'}</h3><p>{formatAutosaveTime(modal.record.savedAt)} に自動保存された作業があります。</p><dl><div><dt>要素</dt><dd>{modal.record.project.objects.length}</dd></div><div><dt>保存元</dt><dd>{modal.record.source === 'previous' ? '一つ前のバックアップ' : '最新の自動保存'}</dd></div></dl>{modal.record.source === 'previous' && <p className="recovery-warning">最新の自動保存を読み取れなかったため、一つ前の正常なバックアップを表示しています。</p>}</div>
+        <div className="modal-actions recovery-actions"><button type="button" onClick={discardAutosave}>破棄して開始</button><button type="button" className="primary-button" onClick={() => restoreAutosave(modal.record)}>復元する</button></div>
+      </div></Modal>}
       {modal?.kind === 'settings' && <Modal title="環境設定" wide onClose={() => setModal(null)}><SettingsEditor settings={settings} onChange={(next) => setSettings(normalizeSettings(next))} onSave={() => downloadJson('graphanta-settings.json', settings)} onLoad={() => settingsInputRef.current?.click()} onReset={() => setSettings(createDefaultSettings())} /></Modal>}
       {modal?.kind === 'text' && <Modal title={modal.objectId ? '文字を編集' : '文字を追加'} onClose={() => setModal(null)}><TextEntry initial={modal.value} submitLabel={modal.objectId ? '更新' : '追加'} onSubmit={(value) => {
         if (modal.objectId) updateObject(modal.objectId, (object) => object.type === 'text' ? { ...object, text: value.trim() } : object);

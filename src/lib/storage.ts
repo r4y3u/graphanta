@@ -3,7 +3,18 @@ import type { GraphantaProject, GraphantaSettings } from '../types';
 const SETTINGS_KEY = 'graphanta.settings.v1';
 const DB_NAME = 'graphanta-local';
 const STORE_NAME = 'documents';
-const AUTOSAVE_KEY = 'autosave';
+const AUTOSAVE_CURRENT_KEY = 'autosave.current';
+const AUTOSAVE_PREVIOUS_KEY = 'autosave.previous';
+const AUTOSAVE_LEGACY_KEY = 'autosave';
+
+export interface AutosaveRecord {
+  format: 'graphanta-autosave';
+  schemaVersion: 1;
+  savedAt: string;
+  appVersion: string;
+  project: GraphantaProject;
+  source?: 'current' | 'previous' | 'legacy';
+}
 
 function canUseLocalStorage(): boolean {
   try {
@@ -59,29 +70,105 @@ function openDatabase(): Promise<IDBDatabase> {
   });
 }
 
-export async function saveAutosave(project: GraphantaProject): Promise<void> {
+function looksLikeProject(value: unknown): value is GraphantaProject {
+  if (!value || typeof value !== 'object') return false;
+  const candidate = value as Partial<GraphantaProject>;
+  return candidate.format === 'graphanta-project'
+    && candidate.schemaVersion === 1
+    && Array.isArray(candidate.objects)
+    && Array.isArray(candidate.expressions)
+    && Array.isArray(candidate.variables);
+}
+
+function normalizeAutosave(value: unknown, source: AutosaveRecord['source']): AutosaveRecord | null {
+  if (looksLikeProject(value)) {
+    return {
+      format: 'graphanta-autosave',
+      schemaVersion: 1,
+      savedAt: value.updatedAt || new Date(0).toISOString(),
+      appVersion: value.appVersion || 'unknown',
+      project: value,
+      source: source ?? 'legacy',
+    };
+  }
+  if (!value || typeof value !== 'object') return null;
+  const candidate = value as Partial<AutosaveRecord>;
+  if (candidate.format !== 'graphanta-autosave' || candidate.schemaVersion !== 1 || !looksLikeProject(candidate.project)) return null;
+  return {
+    format: 'graphanta-autosave',
+    schemaVersion: 1,
+    savedAt: typeof candidate.savedAt === 'string' ? candidate.savedAt : candidate.project.updatedAt,
+    appVersion: typeof candidate.appVersion === 'string' ? candidate.appVersion : candidate.project.appVersion,
+    project: candidate.project,
+    source,
+  };
+}
+
+export async function saveAutosave(project: GraphantaProject): Promise<AutosaveRecord> {
   const db = await openDatabase();
+  const record: AutosaveRecord = {
+    format: 'graphanta-autosave',
+    schemaVersion: 1,
+    savedAt: new Date().toISOString(),
+    appVersion: project.appVersion,
+    project: structuredClone(project),
+    source: 'current',
+  };
   try {
     await new Promise<void>((resolve, reject) => {
       const transaction = db.transaction(STORE_NAME, 'readwrite');
-      transaction.objectStore(STORE_NAME).put(project, AUTOSAVE_KEY);
+      const store = transaction.objectStore(STORE_NAME);
+      const currentRequest = store.get(AUTOSAVE_CURRENT_KEY);
+      currentRequest.onsuccess = () => {
+        const current = normalizeAutosave(currentRequest.result, 'current');
+        if (current) store.put({ ...current, source: undefined }, AUTOSAVE_PREVIOUS_KEY);
+        store.put({ ...record, source: undefined }, AUTOSAVE_CURRENT_KEY);
+        store.delete(AUTOSAVE_LEGACY_KEY);
+      };
+      currentRequest.onerror = () => reject(currentRequest.error);
       transaction.oncomplete = () => resolve();
       transaction.onerror = () => reject(transaction.error);
       transaction.onabort = () => reject(transaction.error);
     });
+    return record;
   } finally {
     db.close();
   }
 }
 
-export async function loadAutosave(): Promise<GraphantaProject | null> {
+export async function loadAutosave(): Promise<AutosaveRecord | null> {
   const db = await openDatabase();
   try {
-    return await new Promise<GraphantaProject | null>((resolve, reject) => {
+    const values = await new Promise<{ current: unknown; previous: unknown; legacy: unknown }>((resolve, reject) => {
       const transaction = db.transaction(STORE_NAME, 'readonly');
-      const request = transaction.objectStore(STORE_NAME).get(AUTOSAVE_KEY);
-      request.onsuccess = () => resolve((request.result as GraphantaProject | undefined) ?? null);
-      request.onerror = () => reject(request.error);
+      const store = transaction.objectStore(STORE_NAME);
+      const current = store.get(AUTOSAVE_CURRENT_KEY);
+      const previous = store.get(AUTOSAVE_PREVIOUS_KEY);
+      const legacy = store.get(AUTOSAVE_LEGACY_KEY);
+      transaction.oncomplete = () => resolve({ current: current.result, previous: previous.result, legacy: legacy.result });
+      transaction.onerror = () => reject(transaction.error);
+      transaction.onabort = () => reject(transaction.error);
+    });
+    return normalizeAutosave(values.current, 'current')
+      ?? normalizeAutosave(values.previous, 'previous')
+      ?? normalizeAutosave(values.legacy, 'legacy');
+  } finally {
+    db.close();
+  }
+}
+
+export async function clearAutosave(): Promise<void> {
+  const db = await openDatabase();
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const transaction = db.transaction(STORE_NAME, 'readwrite');
+      const store = transaction.objectStore(STORE_NAME);
+      store.delete(AUTOSAVE_CURRENT_KEY);
+      store.delete(AUTOSAVE_PREVIOUS_KEY);
+      store.delete(AUTOSAVE_LEGACY_KEY);
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => reject(transaction.error);
+      transaction.onabort = () => reject(transaction.error);
     });
   } finally {
     db.close();
