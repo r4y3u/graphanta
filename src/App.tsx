@@ -21,7 +21,7 @@ import { captureSvgAsPng, composeFourCaptures, copySvgPngToClipboard, createPngP
 import {
   clearAutosave,
   downloadJson,
-  loadAutosave,
+  loadAutosaves,
   loadSettingsLocal,
   readJsonFile,
   saveAutosave,
@@ -112,7 +112,7 @@ type Interaction =
 
 type ModalState =
   | { kind: 'settings' }
-  | { kind: 'recovery'; record: AutosaveRecord }
+  | { kind: 'recovery'; records: AutosaveRecord[]; selectedSource: NonNullable<AutosaveRecord['source']> }
   | { kind: 'text'; point: Point; value: string; objectId?: string }
   | { kind: 'math'; point: Point; value: string; expressionId?: string; objectId?: string }
   | { kind: 'about' }
@@ -205,6 +205,12 @@ function formatAutosaveTime(value?: string): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return '';
   return new Intl.DateTimeFormat('ja-JP', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' }).format(date);
+}
+
+function autosaveSourceLabel(source?: AutosaveRecord['source']): string {
+  if (source === 'previous') return '一つ前';
+  if (source === 'legacy') return '旧形式';
+  return '最新';
 }
 
 function clamp(value: number, min: number, max: number): number {
@@ -358,7 +364,14 @@ function normalizeObject(object: GraphicObject): GraphicObject {
 
 function normalizeProject(value: GraphantaProject): GraphantaProject {
   const base = createInitialProject();
-  const normalizedObjects = value.objects.map(normalizeObject);
+  const usedObjectIds = new Set<string>();
+  const normalizedObjects = value.objects.map((source) => {
+    const normalized = normalizeObject(source);
+    let id = normalized.id;
+    if (!id || usedObjectIds.has(id)) id = createId(normalized.type);
+    usedObjectIds.add(id);
+    return id === normalized.id ? normalized : { ...normalized, id } as GraphicObject;
+  });
   const groupCounts = new Map<string, number>();
   normalizedObjects.forEach((object) => {
     if (object.groupId) groupCounts.set(object.groupId, (groupCounts.get(object.groupId) ?? 0) + 1);
@@ -368,14 +381,37 @@ function normalizeProject(value: GraphantaProject): GraphantaProject {
     const { groupId: _groupId, ...rest } = object;
     return rest as GraphicObject;
   });
+  const usedExpressionIds = new Set<string>();
+  const expressions = (Array.isArray(value.expressions) ? value.expressions : base.expressions).map((expression) => {
+    let id = expression.id;
+    if (!id || usedExpressionIds.has(id)) id = createId('expr');
+    usedExpressionIds.add(id);
+    return id === expression.id ? expression : { ...expression, id };
+  });
+  const usedVariableIds = new Set<string>();
+  const variables = (Array.isArray(value.variables) ? value.variables : base.variables).map((variable) => {
+    let id = variable.id;
+    if (!id || usedVariableIds.has(id)) id = createId('var');
+    usedVariableIds.add(id);
+    return id === variable.id ? variable : { ...variable, id };
+  });
   return {
     ...base,
     ...value,
     appVersion: APP_VERSION,
-    canvas: { ...base.canvas, ...value.canvas },
+    canvas: {
+      ...base.canvas,
+      ...value.canvas,
+      width: clamp(value.canvas.width, 320, 8192),
+      height: clamp(value.canvas.height, 240, 8192),
+      gridSize: clamp(value.canvas.gridSize, 2, 1000),
+      coordinatePrecision: clamp(value.canvas.coordinatePrecision, 1, 1000),
+      tickInterval: clamp(value.canvas.tickInterval, 0, 1000000),
+      labelInterval: clamp(value.canvas.labelInterval, 0, 1000000),
+    },
     objects,
-    expressions: Array.isArray(value.expressions) ? value.expressions : base.expressions,
-    variables: Array.isArray(value.variables) ? value.variables : base.variables,
+    expressions,
+    variables,
   };
 }
 
@@ -913,6 +949,10 @@ function App() {
   const touchGesture = useRef<TouchGestureState | null>(null);
   const centeredInitialView = useRef(false);
   const lastSelectPress = useRef<{ objectId: string; at: number; clientX: number; clientY: number } | null>(null);
+  const titleEditSnapshot = useRef<GraphantaProject | null>(null);
+  const titleHistoryCommitted = useRef(false);
+  const nudgeHistory = useRef<{ at: number; selectionKey: string } | null>(null);
+  const wasDirty = useRef(false);
 
   const selectedId = selectedIds.at(-1) ?? null;
   const setSelectedId = useCallback((value: string | null) => setSelectedIds(value ? [value] : []), []);
@@ -967,15 +1007,31 @@ function App() {
     return { entries, intersections };
   }, [resolvedObjects]);
 
-  const commitHistory = useCallback((snapshot: GraphantaProject = project) => {
+  const pushHistorySnapshot = useCallback((snapshot: GraphantaProject) => {
+    const last = undoStack.current.at(-1);
+    if (last && projectFingerprint(last) === projectFingerprint(snapshot)) return false;
     undoStack.current.push(structuredClone(snapshot));
     if (undoStack.current.length > 100) undoStack.current.shift();
     redoStack.current = [];
     setHistoryRevision((revision) => revision + 1);
-  }, [project]);
+    return true;
+  }, []);
+
+  const commitHistory = useCallback((snapshot: GraphantaProject = project) => {
+    pushHistorySnapshot(snapshot);
+  }, [project, pushHistorySnapshot]);
+
+  const resetHistory = useCallback(() => {
+    undoStack.current = [];
+    redoStack.current = [];
+    gestureSnapshot.current = null;
+    gestureChanged.current = false;
+    setHistoryRevision((revision) => revision + 1);
+  }, []);
 
   const undo = useCallback(() => {
-    const previous = undoStack.current.pop();
+    let previous = undoStack.current.pop();
+    while (previous && projectFingerprint(previous) === projectFingerprint(project)) previous = undoStack.current.pop();
     if (!previous) return;
     redoStack.current.push(structuredClone(project));
     setProject(previous);
@@ -985,7 +1041,8 @@ function App() {
   }, [project]);
 
   const redo = useCallback(() => {
-    const next = redoStack.current.pop();
+    let next = redoStack.current.pop();
+    while (next && projectFingerprint(next) === projectFingerprint(project)) next = redoStack.current.pop();
     if (!next) return;
     undoStack.current.push(structuredClone(project));
     setProject(next);
@@ -996,16 +1053,13 @@ function App() {
 
   const mutateProject = useCallback((updater: (current: GraphantaProject) => GraphantaProject, addHistory = true) => {
     setProject((current) => {
-      if (addHistory) {
-        undoStack.current.push(structuredClone(current));
-        if (undoStack.current.length > 100) undoStack.current.shift();
-        redoStack.current = [];
-        setHistoryRevision((revision) => revision + 1);
-      }
-      const next = updater(current);
-      return { ...next, appVersion: APP_VERSION, updatedAt: new Date().toISOString() };
+      const candidate = updater(current);
+      const next = { ...candidate, appVersion: APP_VERSION, updatedAt: new Date().toISOString() };
+      if (projectFingerprint(next) === projectFingerprint(current)) return current;
+      if (addHistory) pushHistorySnapshot(current);
+      return next;
     });
-  }, []);
+  }, [pushHistorySnapshot]);
 
   const updateObject = useCallback((id: string, updater: (object: GraphicObject) => GraphicObject, addHistory = true) => {
     mutateProject((current) => ({ ...current, objects: current.objects.map((object) => object.id === id ? updater(object) : object) }), addHistory);
@@ -1132,6 +1186,8 @@ function App() {
 
   useEffect(() => setTweakHintOpen(false), [activeTool, selectedIds, panelCollapsed.tweak]);
 
+  useEffect(() => { nudgeHistory.current = null; }, [activeTool, selectedIds]);
+
   useEffect(() => {
     if (!tweakHintOpen) return;
     const dismiss = () => setTweakHintOpen(false);
@@ -1181,13 +1237,14 @@ function App() {
       return;
     }
     let cancelled = false;
-    loadAutosave().then((saved) => {
+    loadAutosaves().then((savedRecords) => {
       if (cancelled) return;
-      if (!saved || !hasRecoverableContent(saved.project)) {
+      const records = savedRecords.filter((record) => hasRecoverableContent(record.project));
+      if (!records.length) {
         setRecoveryChecked(true);
         return;
       }
-      setModal({ kind: 'recovery', record: saved });
+      setModal({ kind: 'recovery', records, selectedSource: records[0].source ?? 'current' });
     }).catch(() => {
       if (cancelled) return;
       setRecoveryChecked(true);
@@ -1199,6 +1256,13 @@ function App() {
 
   useEffect(() => {
     if (!recoveryChecked) return;
+    if (!isDirty || !hasRecoverableContent(project)) {
+      if (wasDirty.current) clearAutosave().catch(() => undefined);
+      wasDirty.current = false;
+      setAutosaveUi({ state: 'waiting' });
+      return;
+    }
+    wasDirty.current = true;
     let cancelled = false;
     setAutosaveUi((current) => ({ state: 'saving', savedAt: current.savedAt }));
     const timer = window.setTimeout(() => {
@@ -1212,7 +1276,7 @@ function App() {
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [project, recoveryChecked]);
+  }, [currentFingerprint, isDirty, project, recoveryChecked]);
 
   useEffect(() => {
     const beforeUnload = (event: BeforeUnloadEvent) => {
@@ -1256,18 +1320,25 @@ function App() {
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
-      if (target?.matches('input, textarea, select, [contenteditable="true"]')) return;
+      const editingText = Boolean(target?.matches('input, textarea, select, [contenteditable="true"]'));
       const command = event.ctrlKey || event.metaKey;
       if (command && event.key.toLowerCase() === 's') {
         event.preventDefault();
         saveProject();
-      } else if (command && event.key.toLowerCase() === 'o') {
+        return;
+      }
+      if (command && event.key.toLowerCase() === 'o') {
         event.preventDefault();
         requestProjectLoad();
-      } else if (command && event.key.toLowerCase() === 'n') {
+        return;
+      }
+      if (command && event.key.toLowerCase() === 'n') {
         event.preventDefault();
         newProject();
-      } else if (command && event.key.toLowerCase() === 'z') {
+        return;
+      }
+      if (editingText) return;
+      if (command && event.key.toLowerCase() === 'z') {
         event.preventDefault();
         event.shiftKey ? redo() : undo();
       } else if (command && event.key.toLowerCase() === 'y') {
@@ -1282,7 +1353,7 @@ function App() {
       } else if (event.key === 'Escape') {
         if (modal?.kind === 'recovery') {
           event.preventDefault();
-          discardAutosave();
+          skipAutosaveRecovery();
           return;
         }
         if (gestureSnapshot.current) {
@@ -1308,13 +1379,22 @@ function App() {
         const dx = event.key === 'ArrowLeft' ? -amount : event.key === 'ArrowRight' ? amount : 0;
         const dy = event.key === 'ArrowUp' ? -amount : event.key === 'ArrowDown' ? amount : 0;
         const movable = selectionUnits(selectedResolvedObjects).filter((unit) => unit.every((object) => !object.locked)).flat();
+        if (!movable.length) return;
+        const now = performance.now();
+        const selectionKey = movable.map((object) => object.id).sort().join('|');
+        const previousNudge = nudgeHistory.current;
+        const continueSequence = previousNudge && previousNudge.selectionKey === selectionKey && now - previousNudge.at < 550;
+        if (!continueSequence) commitHistory(project);
+        nudgeHistory.current = { at: now, selectionKey };
         const replacements = new Map(movable.map((object) => [object.id, clearGeometryBindings(translateObject(object, dx, dy))]));
-        mutateProject((current) => ({ ...current, objects: current.objects.map((object) => replacements.get(object.id) ?? object) }));
+        mutateProject((current) => ({ ...current, objects: current.objects.map((object) => replacements.get(object.id) ?? object) }), false);
+      } else {
+        nudgeHistory.current = null;
       }
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [deleteSelected, groupSelected, isDirty, modal, mutateProject, polygonPoints.length, project, redo, selectedResolvedObjects, undo, ungroupSelected]);
+  }, [commitHistory, deleteSelected, groupSelected, isDirty, modal, mutateProject, polygonPoints.length, project, redo, selectedResolvedObjects, undo, ungroupSelected]);
 
   const rawWorldPoint = useCallback((clientX: number, clientY: number): Point => {
     const svg = svgRef.current;
@@ -2385,6 +2465,8 @@ function App() {
     downloadJson(`${safeTitle}.graphanta.json`, snapshot);
     setProject(snapshot);
     setSavedFingerprint(projectFingerprint(snapshot));
+    wasDirty.current = false;
+    clearAutosave().then(() => setAutosaveUi({ state: 'waiting' })).catch(() => setAutosaveUi({ state: 'error' }));
     setStatus('プロジェクトファイルを保存しました');
   }
 
@@ -2402,11 +2484,13 @@ function App() {
       const data = await readJsonFile<unknown>(file);
       if (!isProject(data)) throw new Error('Graphantaのプロジェクト形式ではないか、内容が破損しています');
       const normalized = normalizeProject(data);
-      commitHistory(project);
+      resetHistory();
       setProject(normalized);
       setSavedFingerprint(projectFingerprint(normalized));
       setSelectedId(null);
       setView({ x: 0, y: 0, zoom: 1 });
+      wasDirty.current = false;
+      clearAutosave().then(() => setAutosaveUi({ state: 'waiting' })).catch(() => setAutosaveUi({ state: 'error' }));
       setStatus('プロジェクトを読み込みました');
     } catch (error) {
       window.alert(error instanceof Error ? error.message : 'プロジェクトを読み込めませんでした');
@@ -2429,12 +2513,14 @@ function App() {
 
   function newProject() {
     if (isDirty && !window.confirm('未保存の変更があります。現在の作業を閉じて新規作成しますか？')) return;
-    commitHistory(project);
+    resetHistory();
     const next = createInitialProject();
     setProject(next);
     setSavedFingerprint(projectFingerprint(next));
     setSelectedId(null);
     setView({ x: 0, y: 0, zoom: 1 });
+    wasDirty.current = false;
+    clearAutosave().then(() => setAutosaveUi({ state: 'waiting' })).catch(() => setAutosaveUi({ state: 'error' }));
     setStatus('新しいプロジェクトを作成しました');
   }
 
@@ -2446,19 +2532,29 @@ function App() {
       return;
     }
     const normalized = normalizeProject(record.project);
+    resetHistory();
     setProject(normalized);
     setSavedFingerprint('');
+    setSelectedId(null);
     setModal(null);
     setRecoveryChecked(true);
+    wasDirty.current = true;
     setAutosaveUi({ state: 'saved', savedAt: record.savedAt });
     setStatus(record.source === 'previous' ? '一つ前の自動保存から作業を復元しました' : '前回の作業を復元しました');
+  }
+
+  function skipAutosaveRecovery() {
+    setModal(null);
+    setRecoveryChecked(true);
+    setStatus('復旧データを残したまま新しい作業を開始しました');
   }
 
   function discardAutosave() {
     setModal(null);
     setRecoveryChecked(true);
+    wasDirty.current = false;
     clearAutosave().then(() => setAutosaveUi({ state: 'waiting' })).catch(() => setAutosaveUi({ state: 'error' }));
-    setStatus('前回の自動保存を破棄しました');
+    setStatus('前回の自動保存を削除しました');
   }
 
   async function screenshotInstant() {
@@ -2554,6 +2650,10 @@ function App() {
     setModal({ kind: 'math', point: { x: view.x + visibleWorldWidth / 2, y: view.y + visibleWorldHeight / 2 }, value: expression.source });
   }
 
+  const selectedRecoveryRecord = modal?.kind === 'recovery'
+    ? modal.records.find((record) => (record.source ?? 'current') === modal.selectedSource) ?? modal.records[0] ?? null
+    : null;
+
   return (
     <div className={`app-shell ${presentation ? 'presentation-mode' : ''}`}>
       <header className="menu-bar">
@@ -2580,7 +2680,28 @@ function App() {
           <button type="button" aria-label="設定" title="設定" onClick={() => setModal({ kind: 'settings' })}><Icon name="settings" size={19} /></button>
         </nav>
         <div className="view-control" aria-label="表示倍率"><button type="button" onClick={() => setView({ x: coordinateOrigin.x - viewportSize.width / 2, y: coordinateOrigin.y - viewportSize.height / 2, zoom: 1 })}>全体表示</button><output>{Math.round(view.zoom * 100)}%</output></div>
-        <input className={`project-title ${isDirty ? 'is-unsaved' : ''}`} value={project.title} aria-label="プロジェクト名" title="プロジェクト名" onChange={(event) => setProject((current) => ({ ...current, title: event.target.value }))} />
+        <input
+          className={`project-title ${isDirty ? 'is-unsaved' : ''}`}
+          value={project.title}
+          aria-label="プロジェクト名"
+          title="プロジェクト名"
+          onFocus={() => {
+            titleEditSnapshot.current = structuredClone(project);
+            titleHistoryCommitted.current = false;
+          }}
+          onChange={(event) => {
+            const snapshot = titleEditSnapshot.current;
+            if (snapshot && !titleHistoryCommitted.current) {
+              pushHistorySnapshot(snapshot);
+              titleHistoryCommitted.current = true;
+            }
+            setProject((current) => ({ ...current, title: event.target.value, appVersion: APP_VERSION, updatedAt: new Date().toISOString() }));
+          }}
+          onBlur={() => {
+            titleEditSnapshot.current = null;
+            titleHistoryCommitted.current = false;
+          }}
+        />
         <button type="button" className="wordmark" onClick={() => setModal({ kind: 'about' })}><strong>Graphanta</strong><span>visual mathematics</span></button>
       </header>
 
@@ -2698,10 +2819,22 @@ function App() {
       <input ref={projectInputRef} type="file" accept=".json,.graphanta.json,application/json" hidden onChange={loadProjectFile} />
       <input ref={settingsInputRef} type="file" accept=".json,.graphanta-settings.json,application/json" hidden onChange={loadSettingsFile} />
 
-      {modal?.kind === 'recovery' && <Modal title="前回の作業を確認" onClose={discardAutosave}><div className="recovery-box">
+      {modal?.kind === 'recovery' && selectedRecoveryRecord && <Modal title="前回の作業を確認" onClose={skipAutosaveRecovery}><div className="recovery-box recovery-box-list">
         <div className="recovery-icon"><Icon name="history" size={28} /></div>
-        <div><h3>{modal.record.project.title || '無題のプロジェクト'}</h3><p>{formatAutosaveTime(modal.record.savedAt)} に自動保存された作業があります。</p><dl><div><dt>要素</dt><dd>{modal.record.project.objects.length}</dd></div><div><dt>保存元</dt><dd>{modal.record.source === 'previous' ? '一つ前のバックアップ' : '最新の自動保存'}</dd></div></dl>{modal.record.source === 'previous' && <p className="recovery-warning">最新の自動保存を読み取れなかったため、一つ前の正常なバックアップを表示しています。</p>}</div>
-        <div className="modal-actions recovery-actions"><button type="button" onClick={discardAutosave}>破棄して開始</button><button type="button" className="primary-button" onClick={() => restoreAutosave(modal.record)}>復元する</button></div>
+        <div className="recovery-summary"><h3>{selectedRecoveryRecord.project.title || '無題のプロジェクト'}</h3><p>自動保存された作業を選んで復元できます。閉じても復旧データは削除されません。</p></div>
+        <div className="recovery-versions" role="radiogroup" aria-label="復元する自動保存">
+          {modal.records.map((record) => {
+            const source = record.source ?? 'current';
+            const selected = source === modal.selectedSource;
+            return <button key={`${source}-${record.savedAt}`} type="button" role="radio" aria-checked={selected} className={selected ? 'is-selected' : ''} onClick={() => setModal({ ...modal, selectedSource: source })}>
+              <span className="recovery-version-label">{autosaveSourceLabel(source)}</span>
+              <strong>{formatAutosaveTime(record.savedAt)}</strong>
+              <small>{record.project.objects.length}要素</small>
+            </button>;
+          })}
+        </div>
+        <div className="recovery-detail"><dl><div><dt>プロジェクト</dt><dd>{selectedRecoveryRecord.project.title || '無題のプロジェクト'}</dd></div><div><dt>保存元</dt><dd>{autosaveSourceLabel(selectedRecoveryRecord.source)}の自動保存</dd></div><div><dt>要素</dt><dd>{selectedRecoveryRecord.project.objects.length}</dd></div><div><dt>アプリ</dt><dd>{selectedRecoveryRecord.appVersion || '不明'}</dd></div></dl></div>
+        <div className="modal-actions recovery-actions"><button type="button" className="danger-quiet" onClick={() => { if (window.confirm('保存されている復旧データをすべて削除しますか？')) discardAutosave(); }}>復旧データを削除</button><span className="recovery-action-spacer" /><button type="button" onClick={skipAutosaveRecovery}>今回は使わない</button><button type="button" className="primary-button" onClick={() => restoreAutosave(selectedRecoveryRecord)}>選択して復元</button></div>
       </div></Modal>}
       {modal?.kind === 'settings' && <Modal title="環境設定" wide onClose={() => setModal(null)}><SettingsEditor settings={settings} onChange={(next) => setSettings(normalizeSettings(next))} onSave={() => downloadJson('graphanta-settings.json', settings)} onLoad={() => settingsInputRef.current?.click()} onReset={() => setSettings(createDefaultSettings())} /></Modal>}
       {modal?.kind === 'text' && <Modal title={modal.objectId ? '文字を編集' : '文字を追加'} onClose={() => setModal(null)}><TextEntry initial={modal.value} submitLabel={modal.objectId ? '更新' : '追加'} onSubmit={(value) => {

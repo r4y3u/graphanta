@@ -1,6 +1,6 @@
 <!doctype html>
 <!-- 単体起動版: CSS・JavaScriptを内包し、通信なしで動作します。 -->
-<html lang="ja"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover"><meta name="theme-color" content="#4f46e5"><meta name="description" content="Graphanta - 数学的な思考と表現を支える図・グラフ作成アプリ"><title>Graphanta v0.4.0-alpha.1</title><style>:root {
+<html lang="ja"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover"><meta name="theme-color" content="#4f46e5"><meta name="description" content="Graphanta - 数学的な思考と表現を支える図・グラフ作成アプリ"><title>Graphanta v0.4.0-alpha.2</title><style>:root {
   font-family: Inter, "Noto Sans JP", "Yu Gothic UI", "Yu Gothic", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
   color: #20273b;
   background: #edf0f8;
@@ -1100,8 +1100,97 @@ button:not(:disabled) {
 .recovery-actions { grid-column: 1 / -1; margin-top: 5px; }
 
 @media (max-width: 560px) {
-  .tweak-hint-button { left: 98px; }
+  .tweak-hint-button { left: 104px; }
   .status-bar .save-status { max-width: 52%; }
+}
+
+/* v0.4.0-alpha.2: 履歴・復旧の安全性 */
+.recovery-box-list {
+  grid-template-columns: 54px minmax(0, 1fr);
+  min-width: min(620px, 78vw);
+}
+.recovery-summary { min-width: 0; }
+.recovery-versions {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 9px;
+}
+.recovery-versions > button {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-areas: "label time" "label count";
+  align-items: center;
+  column-gap: 9px;
+  row-gap: 2px;
+  padding: 10px 12px;
+  border: 1px solid #d9deeb;
+  border-radius: 11px;
+  color: #333c52;
+  background: #f8f9fc;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color .16s ease, background .16s ease, box-shadow .16s ease, transform .12s ease;
+}
+.recovery-versions > button:hover {
+  border-color: #aaa2ee;
+  background: #f3f1ff;
+  box-shadow: 0 6px 16px rgba(67, 55, 174, .09);
+}
+.recovery-versions > button:active { transform: translateY(1px) scale(.992); }
+.recovery-versions > button.is-selected {
+  border-color: var(--primary);
+  background: linear-gradient(145deg, #eeebff, #faf9ff);
+  box-shadow: 0 0 0 2px rgba(86, 72, 223, .12);
+}
+.recovery-version-label {
+  grid-area: label;
+  display: grid;
+  place-items: center;
+  min-width: 42px;
+  min-height: 42px;
+  padding: 4px 7px;
+  border-radius: 9px;
+  color: var(--primary-strong);
+  background: rgba(86, 72, 223, .09);
+  font-size: 11px;
+  font-weight: 800;
+}
+.recovery-versions strong {
+  grid-area: time;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+}
+.recovery-versions small { grid-area: count; color: #7a8194; font-size: 10px; }
+.recovery-detail {
+  grid-column: 1 / -1;
+  padding: 10px;
+  border: 1px solid #e0e4ef;
+  border-radius: 11px;
+  background: #fbfcff;
+}
+.recovery-detail dl > div:first-child { flex: 1 1 210px; }
+.recovery-detail dd {
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.recovery-actions { display: flex; align-items: center; gap: 8px; }
+.recovery-action-spacer { flex: 1; }
+.danger-quiet { color: #a64545 !important; }
+.danger-quiet:hover { border-color: #e1b8b8 !important; background: #fff3f3 !important; }
+
+@media (max-width: 650px) {
+  .recovery-box-list { min-width: 0; }
+  .recovery-versions { grid-template-columns: 1fr; }
+  .recovery-actions { flex-wrap: wrap; }
+  .recovery-action-spacer { display: none; }
+  .recovery-actions button { flex: 1 1 42%; }
+  .recovery-actions .danger-quiet { flex-basis: 100%; order: 3; }
 }
 </style></head><body><div id="root"></div><script>const __vite__mapDeps=(i,m=__vite__mapDeps,d=(m.f||(m.f=["./codeMirrorModule-Bucv2d7q.js","../codeMirrorModule.C3UTv-Ge.css"])))=>i.map(i=>d[i]);
 var R1=Object.defineProperty;var j1=(n,e,i)=>e in n?R1(n,e,{enumerable:!0,configurable:!0,writable:!0,value:i}):n[e]=i;var Te=(n,e,i)=>j1(n,typeof e!="symbol"?e+"":e,i);(function(){const e=document.createElement("link").relList;if(e&&e.supports&&e.supports("modulepreload"))return;for(const l of document.querySelectorAll('link[rel="modulepreload"]'))s(l);new MutationObserver(l=>{for(const o of l)if(o.type==="childList")for(const u of o.addedNodes)u.tagName==="LINK"&&u.rel==="modulepreload"&&s(u)}).observe(document,{childList:!0,subtree:!0});function i(l){const o={};return l.integrity&&(o.integrity=l.integrity),l.referrerPolicy&&(o.referrerPolicy=l.referrerPolicy),l.crossOrigin==="use-credentials"?o.credentials="include":l.crossOrigin==="anonymous"?o.credentials="omit":o.credentials="same-origin",o}function s(l){if(l.ep)return;l.ep=!0;const o=i(l);fetch(l.href,o)}})();function L1(n){return n&&n.__esModule&&Object.prototype.hasOwnProperty.call(n,"default")?n.default:n}var Yf={exports:{}},Ma={};/**
@@ -1258,6 +1347,13 @@ function formatAutosaveTime(value) {
         return '';
     return new Intl.DateTimeFormat('ja-JP', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' }).format(date);
 }
+function autosaveSourceLabel(source) {
+    if (source === 'previous')
+        return '一つ前';
+    if (source === 'legacy')
+        return '旧形式';
+    return '最新';
+}
 function clamp(value, min, max) {
     return Math.min(max, Math.max(min, value));
 }
@@ -1407,7 +1503,15 @@ function normalizeObject(object) {
 }
 function normalizeProject(value) {
     const base = (0, defaults_1.createInitialProject)();
-    const normalizedObjects = value.objects.map(normalizeObject);
+    const usedObjectIds = new Set();
+    const normalizedObjects = value.objects.map((source) => {
+        const normalized = normalizeObject(source);
+        let id = normalized.id;
+        if (!id || usedObjectIds.has(id))
+            id = (0, geometry_1.createId)(normalized.type);
+        usedObjectIds.add(id);
+        return id === normalized.id ? normalized : { ...normalized, id };
+    });
     const groupCounts = new Map();
     normalizedObjects.forEach((object) => {
         if (object.groupId)
@@ -1419,14 +1523,39 @@ function normalizeProject(value) {
         const { groupId: _groupId, ...rest } = object;
         return rest;
     });
+    const usedExpressionIds = new Set();
+    const expressions = (Array.isArray(value.expressions) ? value.expressions : base.expressions).map((expression) => {
+        let id = expression.id;
+        if (!id || usedExpressionIds.has(id))
+            id = (0, geometry_1.createId)('expr');
+        usedExpressionIds.add(id);
+        return id === expression.id ? expression : { ...expression, id };
+    });
+    const usedVariableIds = new Set();
+    const variables = (Array.isArray(value.variables) ? value.variables : base.variables).map((variable) => {
+        let id = variable.id;
+        if (!id || usedVariableIds.has(id))
+            id = (0, geometry_1.createId)('var');
+        usedVariableIds.add(id);
+        return id === variable.id ? variable : { ...variable, id };
+    });
     return {
         ...base,
         ...value,
         appVersion: defaults_1.APP_VERSION,
-        canvas: { ...base.canvas, ...value.canvas },
+        canvas: {
+            ...base.canvas,
+            ...value.canvas,
+            width: clamp(value.canvas.width, 320, 8192),
+            height: clamp(value.canvas.height, 240, 8192),
+            gridSize: clamp(value.canvas.gridSize, 2, 1000),
+            coordinatePrecision: clamp(value.canvas.coordinatePrecision, 1, 1000),
+            tickInterval: clamp(value.canvas.tickInterval, 0, 1000000),
+            labelInterval: clamp(value.canvas.labelInterval, 0, 1000000),
+        },
         objects,
-        expressions: Array.isArray(value.expressions) ? value.expressions : base.expressions,
-        variables: Array.isArray(value.variables) ? value.variables : base.variables,
+        expressions,
+        variables,
     };
 }
 function isFinitePointData(value) {
@@ -1936,6 +2065,10 @@ function App() {
     const touchGesture = (0, react_1.useRef)(null);
     const centeredInitialView = (0, react_1.useRef)(false);
     const lastSelectPress = (0, react_1.useRef)(null);
+    const titleEditSnapshot = (0, react_1.useRef)(null);
+    const titleHistoryCommitted = (0, react_1.useRef)(false);
+    const nudgeHistory = (0, react_1.useRef)(null);
+    const wasDirty = (0, react_1.useRef)(false);
     const selectedId = selectedIds.at(-1) ?? null;
     const setSelectedId = (0, react_1.useCallback)((value) => setSelectedIds(value ? [value] : []), []);
     const selectedObjects = (0, react_1.useMemo)(() => project.objects.filter((object) => selectedIds.includes(object.id)), [project.objects, selectedIds]);
@@ -1986,15 +2119,31 @@ function App() {
         }
         return { entries, intersections };
     }, [resolvedObjects]);
-    const commitHistory = (0, react_1.useCallback)((snapshot = project) => {
+    const pushHistorySnapshot = (0, react_1.useCallback)((snapshot) => {
+        const last = undoStack.current.at(-1);
+        if (last && projectFingerprint(last) === projectFingerprint(snapshot))
+            return false;
         undoStack.current.push(structuredClone(snapshot));
         if (undoStack.current.length > 100)
             undoStack.current.shift();
         redoStack.current = [];
         setHistoryRevision((revision) => revision + 1);
-    }, [project]);
+        return true;
+    }, []);
+    const commitHistory = (0, react_1.useCallback)((snapshot = project) => {
+        pushHistorySnapshot(snapshot);
+    }, [project, pushHistorySnapshot]);
+    const resetHistory = (0, react_1.useCallback)(() => {
+        undoStack.current = [];
+        redoStack.current = [];
+        gestureSnapshot.current = null;
+        gestureChanged.current = false;
+        setHistoryRevision((revision) => revision + 1);
+    }, []);
     const undo = (0, react_1.useCallback)(() => {
-        const previous = undoStack.current.pop();
+        let previous = undoStack.current.pop();
+        while (previous && projectFingerprint(previous) === projectFingerprint(project))
+            previous = undoStack.current.pop();
         if (!previous)
             return;
         redoStack.current.push(structuredClone(project));
@@ -2004,7 +2153,9 @@ function App() {
         setStatus('元に戻しました');
     }, [project]);
     const redo = (0, react_1.useCallback)(() => {
-        const next = redoStack.current.pop();
+        let next = redoStack.current.pop();
+        while (next && projectFingerprint(next) === projectFingerprint(project))
+            next = redoStack.current.pop();
         if (!next)
             return;
         undoStack.current.push(structuredClone(project));
@@ -2015,17 +2166,15 @@ function App() {
     }, [project]);
     const mutateProject = (0, react_1.useCallback)((updater, addHistory = true) => {
         setProject((current) => {
-            if (addHistory) {
-                undoStack.current.push(structuredClone(current));
-                if (undoStack.current.length > 100)
-                    undoStack.current.shift();
-                redoStack.current = [];
-                setHistoryRevision((revision) => revision + 1);
-            }
-            const next = updater(current);
-            return { ...next, appVersion: defaults_1.APP_VERSION, updatedAt: new Date().toISOString() };
+            const candidate = updater(current);
+            const next = { ...candidate, appVersion: defaults_1.APP_VERSION, updatedAt: new Date().toISOString() };
+            if (projectFingerprint(next) === projectFingerprint(current))
+                return current;
+            if (addHistory)
+                pushHistorySnapshot(current);
+            return next;
         });
-    }, []);
+    }, [pushHistorySnapshot]);
     const updateObject = (0, react_1.useCallback)((id, updater, addHistory = true) => {
         mutateProject((current) => ({ ...current, objects: current.objects.map((object) => object.id === id ? updater(object) : object) }), addHistory);
     }, [mutateProject]);
@@ -2163,6 +2312,7 @@ function App() {
     }, [mutateProject, selectedIds]);
     (0, react_1.useEffect)(() => (0, storage_1.saveSettingsLocal)(settings), [settings]);
     (0, react_1.useEffect)(() => setTweakHintOpen(false), [activeTool, selectedIds, panelCollapsed.tweak]);
+    (0, react_1.useEffect)(() => { nudgeHistory.current = null; }, [activeTool, selectedIds]);
     (0, react_1.useEffect)(() => {
         if (!tweakHintOpen)
             return;
@@ -2213,14 +2363,15 @@ function App() {
             return;
         }
         let cancelled = false;
-        (0, storage_1.loadAutosave)().then((saved) => {
+        (0, storage_1.loadAutosaves)().then((savedRecords) => {
             if (cancelled)
                 return;
-            if (!saved || !hasRecoverableContent(saved.project)) {
+            const records = savedRecords.filter((record) => hasRecoverableContent(record.project));
+            if (!records.length) {
                 setRecoveryChecked(true);
                 return;
             }
-            setModal({ kind: 'recovery', record: saved });
+            setModal({ kind: 'recovery', records, selectedSource: records[0].source ?? 'current' });
         }).catch(() => {
             if (cancelled)
                 return;
@@ -2233,6 +2384,14 @@ function App() {
     (0, react_1.useEffect)(() => {
         if (!recoveryChecked)
             return;
+        if (!isDirty || !hasRecoverableContent(project)) {
+            if (wasDirty.current)
+                (0, storage_1.clearAutosave)().catch(() => undefined);
+            wasDirty.current = false;
+            setAutosaveUi({ state: 'waiting' });
+            return;
+        }
+        wasDirty.current = true;
         let cancelled = false;
         setAutosaveUi((current) => ({ state: 'saving', savedAt: current.savedAt }));
         const timer = window.setTimeout(() => {
@@ -2248,7 +2407,7 @@ function App() {
             cancelled = true;
             window.clearTimeout(timer);
         };
-    }, [project, recoveryChecked]);
+    }, [currentFingerprint, isDirty, project, recoveryChecked]);
     (0, react_1.useEffect)(() => {
         const beforeUnload = (event) => {
             if (!isDirty)
@@ -2289,22 +2448,26 @@ function App() {
     (0, react_1.useEffect)(() => {
         const onKeyDown = (event) => {
             const target = event.target;
-            if (target?.matches('input, textarea, select, [contenteditable="true"]'))
-                return;
+            const editingText = Boolean(target?.matches('input, textarea, select, [contenteditable="true"]'));
             const command = event.ctrlKey || event.metaKey;
             if (command && event.key.toLowerCase() === 's') {
                 event.preventDefault();
                 saveProject();
+                return;
             }
-            else if (command && event.key.toLowerCase() === 'o') {
+            if (command && event.key.toLowerCase() === 'o') {
                 event.preventDefault();
                 requestProjectLoad();
+                return;
             }
-            else if (command && event.key.toLowerCase() === 'n') {
+            if (command && event.key.toLowerCase() === 'n') {
                 event.preventDefault();
                 newProject();
+                return;
             }
-            else if (command && event.key.toLowerCase() === 'z') {
+            if (editingText)
+                return;
+            if (command && event.key.toLowerCase() === 'z') {
                 event.preventDefault();
                 event.shiftKey ? redo() : undo();
             }
@@ -2323,7 +2486,7 @@ function App() {
             else if (event.key === 'Escape') {
                 if (modal?.kind === 'recovery') {
                     event.preventDefault();
-                    discardAutosave();
+                    skipAutosaveRecovery();
                     return;
                 }
                 if (gestureSnapshot.current) {
@@ -2351,13 +2514,25 @@ function App() {
                 const dx = event.key === 'ArrowLeft' ? -amount : event.key === 'ArrowRight' ? amount : 0;
                 const dy = event.key === 'ArrowUp' ? -amount : event.key === 'ArrowDown' ? amount : 0;
                 const movable = selectionUnits(selectedResolvedObjects).filter((unit) => unit.every((object) => !object.locked)).flat();
+                if (!movable.length)
+                    return;
+                const now = performance.now();
+                const selectionKey = movable.map((object) => object.id).sort().join('|');
+                const previousNudge = nudgeHistory.current;
+                const continueSequence = previousNudge && previousNudge.selectionKey === selectionKey && now - previousNudge.at < 550;
+                if (!continueSequence)
+                    commitHistory(project);
+                nudgeHistory.current = { at: now, selectionKey };
                 const replacements = new Map(movable.map((object) => [object.id, clearGeometryBindings((0, geometry_1.translateObject)(object, dx, dy))]));
-                mutateProject((current) => ({ ...current, objects: current.objects.map((object) => replacements.get(object.id) ?? object) }));
+                mutateProject((current) => ({ ...current, objects: current.objects.map((object) => replacements.get(object.id) ?? object) }), false);
+            }
+            else {
+                nudgeHistory.current = null;
             }
         };
         window.addEventListener('keydown', onKeyDown);
         return () => window.removeEventListener('keydown', onKeyDown);
-    }, [deleteSelected, groupSelected, isDirty, modal, mutateProject, polygonPoints.length, project, redo, selectedResolvedObjects, undo, ungroupSelected]);
+    }, [commitHistory, deleteSelected, groupSelected, isDirty, modal, mutateProject, polygonPoints.length, project, redo, selectedResolvedObjects, undo, ungroupSelected]);
     const rawWorldPoint = (0, react_1.useCallback)((clientX, clientY) => {
         const svg = svgRef.current;
         if (!svg)
@@ -3412,6 +3587,8 @@ function App() {
         (0, storage_1.downloadJson)(`${safeTitle}.graphanta.json`, snapshot);
         setProject(snapshot);
         setSavedFingerprint(projectFingerprint(snapshot));
+        wasDirty.current = false;
+        (0, storage_1.clearAutosave)().then(() => setAutosaveUi({ state: 'waiting' })).catch(() => setAutosaveUi({ state: 'error' }));
         setStatus('プロジェクトファイルを保存しました');
     }
     function requestProjectLoad() {
@@ -3431,11 +3608,13 @@ function App() {
             if (!isProject(data))
                 throw new Error('Graphantaのプロジェクト形式ではないか、内容が破損しています');
             const normalized = normalizeProject(data);
-            commitHistory(project);
+            resetHistory();
             setProject(normalized);
             setSavedFingerprint(projectFingerprint(normalized));
             setSelectedId(null);
             setView({ x: 0, y: 0, zoom: 1 });
+            wasDirty.current = false;
+            (0, storage_1.clearAutosave)().then(() => setAutosaveUi({ state: 'waiting' })).catch(() => setAutosaveUi({ state: 'error' }));
             setStatus('プロジェクトを読み込みました');
         }
         catch (error) {
@@ -3461,12 +3640,14 @@ function App() {
     function newProject() {
         if (isDirty && !window.confirm('未保存の変更があります。現在の作業を閉じて新規作成しますか？'))
             return;
-        commitHistory(project);
+        resetHistory();
         const next = (0, defaults_1.createInitialProject)();
         setProject(next);
         setSavedFingerprint(projectFingerprint(next));
         setSelectedId(null);
         setView({ x: 0, y: 0, zoom: 1 });
+        wasDirty.current = false;
+        (0, storage_1.clearAutosave)().then(() => setAutosaveUi({ state: 'waiting' })).catch(() => setAutosaveUi({ state: 'error' }));
         setStatus('新しいプロジェクトを作成しました');
     }
     function restoreAutosave(record) {
@@ -3477,18 +3658,27 @@ function App() {
             return;
         }
         const normalized = normalizeProject(record.project);
+        resetHistory();
         setProject(normalized);
         setSavedFingerprint('');
+        setSelectedId(null);
         setModal(null);
         setRecoveryChecked(true);
+        wasDirty.current = true;
         setAutosaveUi({ state: 'saved', savedAt: record.savedAt });
         setStatus(record.source === 'previous' ? '一つ前の自動保存から作業を復元しました' : '前回の作業を復元しました');
+    }
+    function skipAutosaveRecovery() {
+        setModal(null);
+        setRecoveryChecked(true);
+        setStatus('復旧データを残したまま新しい作業を開始しました');
     }
     function discardAutosave() {
         setModal(null);
         setRecoveryChecked(true);
+        wasDirty.current = false;
         (0, storage_1.clearAutosave)().then(() => setAutosaveUi({ state: 'waiting' })).catch(() => setAutosaveUi({ state: 'error' }));
-        setStatus('前回の自動保存を破棄しました');
+        setStatus('前回の自動保存を削除しました');
     }
     async function screenshotInstant() {
         if (!svgRef.current || screenshotBusy)
@@ -3585,6 +3775,9 @@ function App() {
     function placeExpression(expression) {
         setModal({ kind: 'math', point: { x: view.x + visibleWorldWidth / 2, y: view.y + visibleWorldHeight / 2 }, value: expression.source });
     }
+    const selectedRecoveryRecord = modal?.kind === 'recovery'
+        ? modal.records.find((record) => (record.source ?? 'current') === modal.selectedSource) ?? modal.records[0] ?? null
+        : null;
     return (React.createElement("div", { className: `app-shell ${presentation ? 'presentation-mode' : ''}` },
         React.createElement("header", { className: "menu-bar" },
             React.createElement("button", { type: "button", className: "app-mark", "aria-label": "Graphanta\u306B\u3064\u3044\u3066", onClick: () => setModal({ kind: 'about' }) },
@@ -3640,7 +3833,20 @@ function App() {
                 React.createElement("output", null,
                     Math.round(view.zoom * 100),
                     "%")),
-            React.createElement("input", { className: `project-title ${isDirty ? 'is-unsaved' : ''}`, value: project.title, "aria-label": "\u30D7\u30ED\u30B8\u30A7\u30AF\u30C8\u540D", title: "\u30D7\u30ED\u30B8\u30A7\u30AF\u30C8\u540D", onChange: (event) => setProject((current) => ({ ...current, title: event.target.value })) }),
+            React.createElement("input", { className: `project-title ${isDirty ? 'is-unsaved' : ''}`, value: project.title, "aria-label": "\u30D7\u30ED\u30B8\u30A7\u30AF\u30C8\u540D", title: "\u30D7\u30ED\u30B8\u30A7\u30AF\u30C8\u540D", onFocus: () => {
+                    titleEditSnapshot.current = structuredClone(project);
+                    titleHistoryCommitted.current = false;
+                }, onChange: (event) => {
+                    const snapshot = titleEditSnapshot.current;
+                    if (snapshot && !titleHistoryCommitted.current) {
+                        pushHistorySnapshot(snapshot);
+                        titleHistoryCommitted.current = true;
+                    }
+                    setProject((current) => ({ ...current, title: event.target.value, appVersion: defaults_1.APP_VERSION, updatedAt: new Date().toISOString() }));
+                }, onBlur: () => {
+                    titleEditSnapshot.current = null;
+                    titleHistoryCommitted.current = false;
+                } }),
             React.createElement("button", { type: "button", className: "wordmark", onClick: () => setModal({ kind: 'about' }) },
                 React.createElement("strong", null, "Graphanta"),
                 React.createElement("span", null, "visual mathematics"))),
@@ -3724,26 +3930,45 @@ function App() {
         presentation && React.createElement("button", { className: "exit-presentation", type: "button", onClick: togglePresentation }, "\u767A\u8868\u30E2\u30FC\u30C9\u3092\u7D42\u4E86"),
         React.createElement("input", { ref: projectInputRef, type: "file", accept: ".json,.graphanta.json,application/json", hidden: true, onChange: loadProjectFile }),
         React.createElement("input", { ref: settingsInputRef, type: "file", accept: ".json,.graphanta-settings.json,application/json", hidden: true, onChange: loadSettingsFile }),
-        modal?.kind === 'recovery' && React.createElement(Modal_1.Modal, { title: "\u524D\u56DE\u306E\u4F5C\u696D\u3092\u78BA\u8A8D", onClose: discardAutosave },
-            React.createElement("div", { className: "recovery-box" },
+        modal?.kind === 'recovery' && selectedRecoveryRecord && React.createElement(Modal_1.Modal, { title: "\u524D\u56DE\u306E\u4F5C\u696D\u3092\u78BA\u8A8D", onClose: skipAutosaveRecovery },
+            React.createElement("div", { className: "recovery-box recovery-box-list" },
                 React.createElement("div", { className: "recovery-icon" },
                     React.createElement(Icon_1.Icon, { name: "history", size: 28 })),
-                React.createElement("div", null,
-                    React.createElement("h3", null, modal.record.project.title || '無題のプロジェクト'),
-                    React.createElement("p", null,
-                        formatAutosaveTime(modal.record.savedAt),
-                        " \u306B\u81EA\u52D5\u4FDD\u5B58\u3055\u308C\u305F\u4F5C\u696D\u304C\u3042\u308A\u307E\u3059\u3002"),
+                React.createElement("div", { className: "recovery-summary" },
+                    React.createElement("h3", null, selectedRecoveryRecord.project.title || '無題のプロジェクト'),
+                    React.createElement("p", null, "\u81EA\u52D5\u4FDD\u5B58\u3055\u308C\u305F\u4F5C\u696D\u3092\u9078\u3093\u3067\u5FA9\u5143\u3067\u304D\u307E\u3059\u3002\u9589\u3058\u3066\u3082\u5FA9\u65E7\u30C7\u30FC\u30BF\u306F\u524A\u9664\u3055\u308C\u307E\u305B\u3093\u3002")),
+                React.createElement("div", { className: "recovery-versions", role: "radiogroup", "aria-label": "\u5FA9\u5143\u3059\u308B\u81EA\u52D5\u4FDD\u5B58" }, modal.records.map((record) => {
+                    const source = record.source ?? 'current';
+                    const selected = source === modal.selectedSource;
+                    return React.createElement("button", { key: `${source}-${record.savedAt}`, type: "button", role: "radio", "aria-checked": selected, className: selected ? 'is-selected' : '', onClick: () => setModal({ ...modal, selectedSource: source }) },
+                        React.createElement("span", { className: "recovery-version-label" }, autosaveSourceLabel(source)),
+                        React.createElement("strong", null, formatAutosaveTime(record.savedAt)),
+                        React.createElement("small", null,
+                            record.project.objects.length,
+                            "\u8981\u7D20"));
+                })),
+                React.createElement("div", { className: "recovery-detail" },
                     React.createElement("dl", null,
                         React.createElement("div", null,
-                            React.createElement("dt", null, "\u8981\u7D20"),
-                            React.createElement("dd", null, modal.record.project.objects.length)),
+                            React.createElement("dt", null, "\u30D7\u30ED\u30B8\u30A7\u30AF\u30C8"),
+                            React.createElement("dd", null, selectedRecoveryRecord.project.title || '無題のプロジェクト')),
                         React.createElement("div", null,
                             React.createElement("dt", null, "\u4FDD\u5B58\u5143"),
-                            React.createElement("dd", null, modal.record.source === 'previous' ? '一つ前のバックアップ' : '最新の自動保存'))),
-                    modal.record.source === 'previous' && React.createElement("p", { className: "recovery-warning" }, "\u6700\u65B0\u306E\u81EA\u52D5\u4FDD\u5B58\u3092\u8AAD\u307F\u53D6\u308C\u306A\u304B\u3063\u305F\u305F\u3081\u3001\u4E00\u3064\u524D\u306E\u6B63\u5E38\u306A\u30D0\u30C3\u30AF\u30A2\u30C3\u30D7\u3092\u8868\u793A\u3057\u3066\u3044\u307E\u3059\u3002")),
+                            React.createElement("dd", null,
+                                autosaveSourceLabel(selectedRecoveryRecord.source),
+                                "\u306E\u81EA\u52D5\u4FDD\u5B58")),
+                        React.createElement("div", null,
+                            React.createElement("dt", null, "\u8981\u7D20"),
+                            React.createElement("dd", null, selectedRecoveryRecord.project.objects.length)),
+                        React.createElement("div", null,
+                            React.createElement("dt", null, "\u30A2\u30D7\u30EA"),
+                            React.createElement("dd", null, selectedRecoveryRecord.appVersion || '不明')))),
                 React.createElement("div", { className: "modal-actions recovery-actions" },
-                    React.createElement("button", { type: "button", onClick: discardAutosave }, "\u7834\u68C4\u3057\u3066\u958B\u59CB"),
-                    React.createElement("button", { type: "button", className: "primary-button", onClick: () => restoreAutosave(modal.record) }, "\u5FA9\u5143\u3059\u308B")))),
+                    React.createElement("button", { type: "button", className: "danger-quiet", onClick: () => { if (window.confirm('保存されている復旧データをすべて削除しますか？'))
+                            discardAutosave(); } }, "\u5FA9\u65E7\u30C7\u30FC\u30BF\u3092\u524A\u9664"),
+                    React.createElement("span", { className: "recovery-action-spacer" }),
+                    React.createElement("button", { type: "button", onClick: skipAutosaveRecovery }, "\u4ECA\u56DE\u306F\u4F7F\u308F\u306A\u3044"),
+                    React.createElement("button", { type: "button", className: "primary-button", onClick: () => restoreAutosave(selectedRecoveryRecord) }, "\u9078\u629E\u3057\u3066\u5FA9\u5143")))),
         modal?.kind === 'settings' && React.createElement(Modal_1.Modal, { title: "\u74B0\u5883\u8A2D\u5B9A", wide: true, onClose: () => setModal(null) },
             React.createElement(SettingsEditor, { settings: settings, onChange: (next) => setSettings(normalizeSettings(next)), onSave: () => (0, storage_1.downloadJson)('graphanta-settings.json', settings), onLoad: () => settingsInputRef.current?.click(), onReset: () => setSettings((0, defaults_1.createDefaultSettings)()) })),
         modal?.kind === 'text' && React.createElement(Modal_1.Modal, { title: modal.objectId ? '文字を編集' : '文字を追加', onClose: () => setModal(null) },
@@ -4691,7 +4916,7 @@ exports.TOOL_LABELS = exports.BASIC_TOOLS = exports.ALL_TOOLS = exports.APP_VERS
 exports.createInitialProject = createInitialProject;
 exports.createDefaultSettings = createDefaultSettings;
 const geometry_1 = require("./lib/geometry");
-exports.APP_VERSION = '0.4.0-alpha.1';
+exports.APP_VERSION = '0.4.0-alpha.2';
 exports.ALL_TOOLS = [
     'select', 'pan', 'zoom', 'pen', 'line', 'arrow', 'rectangle', 'ellipse', 'polygon',
     'text', 'math', 'array', 'ball', 'person', 'bundle', 'segment', 'function',
@@ -4902,9 +5127,10 @@ function tokenize(source) {
     return tokens;
 }
 class MathParser {
+    tokens;
+    index = 0;
     constructor(tokens) {
         this.tokens = tokens;
-        this.index = 0;
     }
     parse() {
         if (this.tokens.length === 0)
@@ -5314,10 +5540,12 @@ function tokenize(input) {
     return tokens;
 }
 class Parser {
+    tokens;
+    variables;
+    index = 0;
     constructor(tokens, variables) {
         this.tokens = tokens;
         this.variables = variables;
-        this.index = 0;
     }
     parse() {
         const value = this.parseAdditive();
@@ -5614,6 +5842,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.saveSettingsLocal = saveSettingsLocal;
 exports.loadSettingsLocal = loadSettingsLocal;
 exports.saveAutosave = saveAutosave;
+exports.loadAutosaves = loadAutosaves;
 exports.loadAutosave = loadAutosave;
 exports.clearAutosave = clearAutosave;
 exports.downloadJson = downloadJson;
@@ -5692,6 +5921,16 @@ function looksLikeProject(value) {
         && Array.isArray(candidate.expressions)
         && Array.isArray(candidate.variables);
 }
+function projectContentFingerprint(project) {
+    const { updatedAt: _updatedAt, appVersion: _appVersion, ...content } = project;
+    const text = JSON.stringify(content);
+    let hash = 0x811c9dc5;
+    for (let index = 0; index < text.length; index += 1) {
+        hash ^= text.charCodeAt(index);
+        hash = Math.imul(hash, 0x01000193);
+    }
+    return `${text.length.toString(36)}-${(hash >>> 0).toString(36)}`;
+}
 function normalizeAutosave(value, source) {
     if (looksLikeProject(value)) {
         return {
@@ -5700,6 +5939,7 @@ function normalizeAutosave(value, source) {
             savedAt: value.updatedAt || new Date(0).toISOString(),
             appVersion: value.appVersion || 'unknown',
             project: value,
+            contentFingerprint: projectContentFingerprint(value),
             source: source ?? 'legacy',
         };
     }
@@ -5714,17 +5954,22 @@ function normalizeAutosave(value, source) {
         savedAt: typeof candidate.savedAt === 'string' ? candidate.savedAt : candidate.project.updatedAt,
         appVersion: typeof candidate.appVersion === 'string' ? candidate.appVersion : candidate.project.appVersion,
         project: candidate.project,
+        contentFingerprint: typeof candidate.contentFingerprint === 'string'
+            ? candidate.contentFingerprint
+            : projectContentFingerprint(candidate.project),
         source,
     };
 }
 async function saveAutosave(project) {
     const db = await openDatabase();
+    const fingerprint = projectContentFingerprint(project);
     const record = {
         format: 'graphanta-autosave',
         schemaVersion: 1,
         savedAt: new Date().toISOString(),
         appVersion: project.appVersion,
         project: structuredClone(project),
+        contentFingerprint: fingerprint,
         source: 'current',
     };
     try {
@@ -5734,8 +5979,10 @@ async function saveAutosave(project) {
             const currentRequest = store.get(AUTOSAVE_CURRENT_KEY);
             currentRequest.onsuccess = () => {
                 const current = normalizeAutosave(currentRequest.result, 'current');
-                if (current)
-                    store.put({ ...current, source: undefined }, AUTOSAVE_PREVIOUS_KEY);
+                if (current?.contentFingerprint !== fingerprint) {
+                    if (current)
+                        store.put({ ...current, source: undefined }, AUTOSAVE_PREVIOUS_KEY);
+                }
                 store.put({ ...record, source: undefined }, AUTOSAVE_CURRENT_KEY);
                 store.delete(AUTOSAVE_LEGACY_KEY);
             };
@@ -5750,7 +5997,7 @@ async function saveAutosave(project) {
         db.close();
     }
 }
-async function loadAutosave() {
+async function loadAutosaves() {
     const db = await openDatabase();
     try {
         const values = await new Promise((resolve, reject) => {
@@ -5763,13 +6010,26 @@ async function loadAutosave() {
             transaction.onerror = () => reject(transaction.error);
             transaction.onabort = () => reject(transaction.error);
         });
-        return normalizeAutosave(values.current, 'current')
-            ?? normalizeAutosave(values.previous, 'previous')
-            ?? normalizeAutosave(values.legacy, 'legacy');
+        const candidates = [
+            normalizeAutosave(values.current, 'current'),
+            normalizeAutosave(values.previous, 'previous'),
+            normalizeAutosave(values.legacy, 'legacy'),
+        ].filter((record) => Boolean(record));
+        const seen = new Set();
+        return candidates.filter((record) => {
+            const fingerprint = record.contentFingerprint ?? projectContentFingerprint(record.project);
+            if (seen.has(fingerprint))
+                return false;
+            seen.add(fingerprint);
+            return true;
+        });
     }
     finally {
         db.close();
     }
+}
+async function loadAutosave() {
+    return (await loadAutosaves())[0] ?? null;
 }
 async function clearAutosave() {
     const db = await openDatabase();
@@ -5879,7 +6139,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 }};
 const __cache={};
 function __normalize(path){const out=[];for(const part of path.split('/')){if(!part||part==='.')continue;if(part==='..')out.pop();else out.push(part)}return out.join('/')}
-function __resolve(from,request){if(request==='react')return '@react';if(request==='react-dom/client')return '@react-dom/client';if(request.endsWith('.css'))return '@css';if(!request.startsWith('.'))throw new Error('未対応のモジュール: '+request);const base=from.split('/').slice(0,-1).join('/');let id=__normalize(base+'/'+request).replace(/\.(tsx?|jsx?)$/,'');if(__modules[id])return id;if(__modules[id+'/index'])return id+'/index';throw new Error('モジュールを解決できません: '+request+' from '+from)}
-function __require(id){if(id==='@react')return globalThis.React;if(id==='@react-dom/client')return globalThis.ReactDOMClient;if(id==='@css')return {};if(__cache[id])return __cache[id].exports;const factory=__modules[id];if(!factory)throw new Error('モジュールがありません: '+id);const module={exports:{}};__cache[id]=module;factory(module,module.exports,(request)=>__require(__resolve(id,request)));return module.exports}
+function __resolve(from,request){if(request==='react')return '@react';if(request==='react-dom/client')return '@react-dom/client';if(request==='react/jsx-runtime')return '@react-jsx-runtime';if(request.endsWith('.css'))return '@css';if(!request.startsWith('.'))throw new Error('未対応のモジュール: '+request);const base=from.split('/').slice(0,-1).join('/');let id=__normalize(base+'/'+request).replace(/\.(tsx?|jsx?)$/,'');if(__modules[id])return id;if(__modules[id+'/index'])return id+'/index';throw new Error('モジュールを解決できません: '+request+' from '+from)}
+function __require(id){if(id==='@react')return globalThis.React;if(id==='@react-dom/client')return globalThis.ReactDOMClient;if(id==='@react-jsx-runtime')return {jsx:globalThis.React.createElement,jsxs:globalThis.React.createElement,Fragment:globalThis.React.Fragment};if(id==='@css')return {};if(__cache[id])return __cache[id].exports;const factory=__modules[id];if(!factory)throw new Error('モジュールがありません: '+id);const module={exports:{}};__cache[id]=module;factory(module,module.exports,(request)=>__require(__resolve(id,request)));return module.exports}
 __require('src/main');
 })();</script></body></html>

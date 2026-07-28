@@ -13,6 +13,7 @@ export interface AutosaveRecord {
   savedAt: string;
   appVersion: string;
   project: GraphantaProject;
+  contentFingerprint?: string;
   source?: 'current' | 'previous' | 'legacy';
 }
 
@@ -80,6 +81,17 @@ function looksLikeProject(value: unknown): value is GraphantaProject {
     && Array.isArray(candidate.variables);
 }
 
+function projectContentFingerprint(project: GraphantaProject): string {
+  const { updatedAt: _updatedAt, appVersion: _appVersion, ...content } = project;
+  const text = JSON.stringify(content);
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < text.length; index += 1) {
+    hash ^= text.charCodeAt(index);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return `${text.length.toString(36)}-${(hash >>> 0).toString(36)}`;
+}
+
 function normalizeAutosave(value: unknown, source: AutosaveRecord['source']): AutosaveRecord | null {
   if (looksLikeProject(value)) {
     return {
@@ -88,6 +100,7 @@ function normalizeAutosave(value: unknown, source: AutosaveRecord['source']): Au
       savedAt: value.updatedAt || new Date(0).toISOString(),
       appVersion: value.appVersion || 'unknown',
       project: value,
+      contentFingerprint: projectContentFingerprint(value),
       source: source ?? 'legacy',
     };
   }
@@ -100,18 +113,23 @@ function normalizeAutosave(value: unknown, source: AutosaveRecord['source']): Au
     savedAt: typeof candidate.savedAt === 'string' ? candidate.savedAt : candidate.project.updatedAt,
     appVersion: typeof candidate.appVersion === 'string' ? candidate.appVersion : candidate.project.appVersion,
     project: candidate.project,
+    contentFingerprint: typeof candidate.contentFingerprint === 'string'
+      ? candidate.contentFingerprint
+      : projectContentFingerprint(candidate.project),
     source,
   };
 }
 
 export async function saveAutosave(project: GraphantaProject): Promise<AutosaveRecord> {
   const db = await openDatabase();
+  const fingerprint = projectContentFingerprint(project);
   const record: AutosaveRecord = {
     format: 'graphanta-autosave',
     schemaVersion: 1,
     savedAt: new Date().toISOString(),
     appVersion: project.appVersion,
     project: structuredClone(project),
+    contentFingerprint: fingerprint,
     source: 'current',
   };
   try {
@@ -121,7 +139,9 @@ export async function saveAutosave(project: GraphantaProject): Promise<AutosaveR
       const currentRequest = store.get(AUTOSAVE_CURRENT_KEY);
       currentRequest.onsuccess = () => {
         const current = normalizeAutosave(currentRequest.result, 'current');
-        if (current) store.put({ ...current, source: undefined }, AUTOSAVE_PREVIOUS_KEY);
+        if (current?.contentFingerprint !== fingerprint) {
+          if (current) store.put({ ...current, source: undefined }, AUTOSAVE_PREVIOUS_KEY);
+        }
         store.put({ ...record, source: undefined }, AUTOSAVE_CURRENT_KEY);
         store.delete(AUTOSAVE_LEGACY_KEY);
       };
@@ -136,7 +156,7 @@ export async function saveAutosave(project: GraphantaProject): Promise<AutosaveR
   }
 }
 
-export async function loadAutosave(): Promise<AutosaveRecord | null> {
+export async function loadAutosaves(): Promise<AutosaveRecord[]> {
   const db = await openDatabase();
   try {
     const values = await new Promise<{ current: unknown; previous: unknown; legacy: unknown }>((resolve, reject) => {
@@ -149,12 +169,25 @@ export async function loadAutosave(): Promise<AutosaveRecord | null> {
       transaction.onerror = () => reject(transaction.error);
       transaction.onabort = () => reject(transaction.error);
     });
-    return normalizeAutosave(values.current, 'current')
-      ?? normalizeAutosave(values.previous, 'previous')
-      ?? normalizeAutosave(values.legacy, 'legacy');
+    const candidates = [
+      normalizeAutosave(values.current, 'current'),
+      normalizeAutosave(values.previous, 'previous'),
+      normalizeAutosave(values.legacy, 'legacy'),
+    ].filter((record): record is AutosaveRecord => Boolean(record));
+    const seen = new Set<string>();
+    return candidates.filter((record) => {
+      const fingerprint = record.contentFingerprint ?? projectContentFingerprint(record.project);
+      if (seen.has(fingerprint)) return false;
+      seen.add(fingerprint);
+      return true;
+    });
   } finally {
     db.close();
   }
+}
+
+export async function loadAutosave(): Promise<AutosaveRecord | null> {
+  return (await loadAutosaves())[0] ?? null;
 }
 
 export async function clearAutosave(): Promise<void> {
