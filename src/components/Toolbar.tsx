@@ -30,6 +30,27 @@ interface FlyoutPosition {
   top: number;
 }
 
+interface SafeAreaInsets {
+  top: number;
+  right: number;
+  bottom: number;
+  left: number;
+}
+
+function readSafeAreaInsets(): SafeAreaInsets {
+  const styles = window.getComputedStyle(document.documentElement);
+  const read = (name: string) => {
+    const value = Number.parseFloat(styles.getPropertyValue(name));
+    return Number.isFinite(value) ? Math.max(0, value) : 0;
+  };
+  return {
+    top: read('--safe-top'),
+    right: read('--safe-right'),
+    bottom: read('--safe-bottom'),
+    left: read('--safe-left'),
+  };
+}
+
 const GROUPS: ToolGroup[] = [
   { id: 'navigation', members: ['select', 'pan', 'zoom'], fallback: 'select' },
   { id: 'linework', members: ['line', 'arrow', 'pen'], fallback: 'line' },
@@ -88,18 +109,34 @@ export function Toolbar({ tools, activeTool, side, onChange }: ToolbarProps) {
 
       const buttonRect = button.getBoundingClientRect();
       const flyoutRect = flyout.getBoundingClientRect();
+      const safeArea = readSafeAreaInsets();
+      const visualViewport = window.visualViewport;
+      const viewportLeft = visualViewport?.offsetLeft ?? 0;
+      const viewportTop = visualViewport?.offsetTop ?? 0;
+      const viewportWidth = visualViewport?.width ?? window.innerWidth;
+      const viewportHeight = visualViewport?.height ?? window.innerHeight;
       const viewportPadding = 8;
       const gap = 8;
+      const minLeft = viewportLeft + safeArea.left + viewportPadding;
+      const minTop = viewportTop + safeArea.top + viewportPadding;
+      const maxLeft = Math.max(
+        minLeft,
+        viewportLeft + viewportWidth - safeArea.right - flyoutRect.width - viewportPadding,
+      );
+      const maxTop = Math.max(
+        minTop,
+        viewportTop + viewportHeight - safeArea.bottom - flyoutRect.height - viewportPadding,
+      );
       const desiredLeft = side === 'right'
         ? buttonRect.left - flyoutRect.width - gap
         : buttonRect.right + gap;
       const left = Math.min(
-        Math.max(viewportPadding, desiredLeft),
-        Math.max(viewportPadding, window.innerWidth - flyoutRect.width - viewportPadding),
+        Math.max(minLeft, desiredLeft),
+        maxLeft,
       );
       const top = Math.min(
-        Math.max(viewportPadding, buttonRect.top),
-        Math.max(viewportPadding, window.innerHeight - flyoutRect.height - viewportPadding),
+        Math.max(minTop, buttonRect.top),
+        maxTop,
       );
 
       setFlyoutPosition((current) => (
@@ -111,9 +148,13 @@ export function Toolbar({ tools, activeTool, side, onChange }: ToolbarProps) {
     const toolbar = toolbarRef.current;
     toolbar?.addEventListener('scroll', positionFlyout, { passive: true });
     window.addEventListener('resize', positionFlyout);
+    window.visualViewport?.addEventListener('resize', positionFlyout);
+    window.visualViewport?.addEventListener('scroll', positionFlyout);
     return () => {
       toolbar?.removeEventListener('scroll', positionFlyout);
       window.removeEventListener('resize', positionFlyout);
+      window.visualViewport?.removeEventListener('resize', positionFlyout);
+      window.visualViewport?.removeEventListener('scroll', positionFlyout);
     };
   }, [expanded, side, tools]);
 
