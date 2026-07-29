@@ -1,4 +1,4 @@
-import { resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 
@@ -7,7 +7,7 @@ export default defineConfig({
   base: './',
   build: {
     rollupOptions: {
-      input: resolve(__dirname, 'app.html'),
+      input: fileURLToPath(new URL('./app.html', import.meta.url)),
     },
   },
 });

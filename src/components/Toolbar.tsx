@@ -220,7 +220,6 @@ export function Toolbar({ tools, activeTool, side, onChange }: ToolbarProps) {
       })}
 
       {singles.map((tool) => {
-        const disabled = tool === 'function';
         return (
           <button
             key={tool}
@@ -228,11 +227,9 @@ export function Toolbar({ tools, activeTool, side, onChange }: ToolbarProps) {
             type="button"
             title={TOOL_LABELS[tool]}
             aria-label={TOOL_LABELS[tool]}
-            disabled={disabled}
             onClick={() => onChange(tool)}
           >
             <Icon name={tool} />
-            {disabled && <span className="tool-badge">v3</span>}
           </button>
         );
       })}

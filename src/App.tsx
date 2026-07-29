@@ -13,6 +13,7 @@ import { ALL_TOOLS, APP_VERSION, TOOL_LABELS, createDefaultSettings, createIniti
 import { Icon } from './components/Icon';
 import { Modal } from './components/Modal';
 import { Toolbar } from './components/Toolbar';
+import { explicitFunctionBody, sampleExplicitFunction } from './lib/function-plot';
 import { createId, distance, normalizeRect, pointsToPath, translateObject } from './lib/geometry';
 import { resolveNumber } from './lib/math';
 import { MathPreview, StructuredMath } from './components/StructuredMath';
@@ -157,7 +158,7 @@ function tweakHintFor(activeTool: ToolId, selectedObjects: GraphicObject[], poly
   if (activeTool === 'ball' || activeTool === 'person') return 'クリックで1個ずつ配置します。ドラッグすると大きさも同時に調整でき、選択中の設定は次の配置へ引き継がれます。';
   if (activeTool === 'bundle') return '縦：横＝1：√2の比率を保って配置します。色・大きさ・不透明度・数値は次の配置へ引き継がれます。';
   if (activeTool === 'segment') return '数直線・テープ図・線分図を切り替えられます。目盛りの数値には変数や式を指定できます。';
-  return '関数グラフ描画は将来版で有効になります。現在は数式の登録と配置をfウィンドウから利用できます。';
+  return 'fウィンドウに y=式 を入力すると、表示中の式を座標上へ描画します。変数フェーダーの変更も即時反映されます。';
 }
 
 interface ContextToolMenuState {
@@ -178,6 +179,7 @@ const MIN_DRAW_SIZE = 4;
 const TWO_PI = Math.PI * 2;
 const RAD_TO_DEG = 180 / Math.PI;
 const DEG_TO_RAD = Math.PI / 180;
+const FUNCTION_PLOT_COLORS = ['#6554e8', '#d7527f', '#16836e', '#cf7418', '#2878b8', '#8b5f30'];
 const MAX_PROJECT_FILE_BYTES = 20 * 1024 * 1024;
 
 type AutosaveUiState =
@@ -986,6 +988,33 @@ function App() {
     y: coordinateOrigin.y - point.y * coordinateUnitPx,
   }), [coordinateOrigin, coordinateUnitPx]);
 
+  const functionPlots = useMemo(() => {
+    const topLeft = worldToCoordinate({ x: view.x, y: view.y });
+    const bottomRight = worldToCoordinate({
+      x: view.x + visibleWorldWidth,
+      y: view.y + visibleWorldHeight,
+    });
+    const range = {
+      xMin: topLeft.x,
+      xMax: bottomRight.x,
+      yMin: bottomRight.y,
+      yMax: topLeft.y,
+      samples: Math.ceil(viewportSize.width * 1.25),
+    };
+
+    return project.expressions.flatMap((expression, index) => {
+      if (!expression.visible) return [];
+      const sample = sampleExplicitFunction(expression.source, project.variables, range);
+      if (!sample.body) return [];
+      return [{
+        expression,
+        color: FUNCTION_PLOT_COLORS[index % FUNCTION_PLOT_COLORS.length],
+        segments: sample.segments.map((segment) => segment.map(coordinateToWorld)),
+        error: sample.error,
+      }];
+    });
+  }, [coordinateToWorld, project.expressions, project.variables, view.x, view.y, viewportSize.width, visibleWorldHeight, visibleWorldWidth, worldToCoordinate]);
+
   const resolveObject = useCallback((object: GraphicObject): GraphicObject => resolveGeometryObject(object, project.variables, worldToCoordinate, coordinateToWorld, coordinateUnitPx), [project.variables, worldToCoordinate, coordinateToWorld, coordinateUnitPx]);
   const resolvedObjects = useMemo(() => project.objects.filter((object) => !object.hidden).map(resolveObject), [project.objects, resolveObject]);
   const selectedResolvedObject = useMemo(() => selectedObject ? resolveObject(selectedObject) : null, [selectedObject, resolveObject]);
@@ -1531,7 +1560,12 @@ function App() {
     setSelectionBox(null);
     setSnapIndicator(null);
     setContextToolMenu(null);
-    setStatus(`${TOOL_LABELS[tool]}を選択しました`);
+    if (tool === 'function') {
+      setPanelCollapsed((current) => ({ ...current, expressions: false }));
+      setStatus('関数グラフを選択しました。fウィンドウに y=式 を入力してください');
+    } else {
+      setStatus(`${TOOL_LABELS[tool]}を選択しました`);
+    }
   }
 
   function openToolContextAt(clientX: number, clientY: number) {
@@ -2456,6 +2490,36 @@ function App() {
     return <g pointerEvents="none">{elements}</g>;
   }
 
+  function renderFunctionPlots() {
+    if (functionPlots.length === 0) return null;
+    return (
+      <g className="function-plot-layer" pointerEvents="none" aria-label="関数グラフ">
+        {functionPlots.map((plot) => (
+          <g
+            key={plot.expression.id}
+            data-function-expression-id={plot.expression.id}
+            data-function-segment-count={plot.segments.length}
+            data-function-error={plot.error || undefined}
+          >
+            <title>{`${plot.expression.label}: ${plot.expression.source}`}</title>
+            {plot.segments.map((points, segmentIndex) => (
+              <path
+                key={segmentIndex}
+                d={pointsToPath(points)}
+                fill="none"
+                stroke={plot.color}
+                strokeWidth={2.4}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                vectorEffect="non-scaling-stroke"
+              />
+            ))}
+          </g>
+        ))}
+      </g>
+    );
+  }
+
   const viewBox = `${view.x} ${view.y} ${visibleWorldWidth} ${visibleWorldHeight}`;
   const coordinateGridStep = coordinateUnitPx * Math.max(project.canvas.tickInterval || 1, 0.0001);
 
@@ -2745,6 +2809,7 @@ function App() {
               <rect x={view.x} y={view.y} width={visibleWorldWidth} height={visibleWorldHeight} fill={project.canvas.background} />
               {project.canvas.gridVisible && <rect x={view.x} y={view.y} width={visibleWorldWidth} height={visibleWorldHeight} fill={project.canvas.axesVisible ? 'url(#coordinate-grid)' : 'url(#pixel-grid)'} />}
               {renderAxes()}
+              {renderFunctionPlots()}
               {project.objects.map(renderObject)}
               {polygonPoints.length > 0 && <g data-ui-only="true" pointerEvents="none"><polyline points={polygonPoints.map((point) => `${point.x},${point.y}`).join(' ')} fill="none" stroke="#6d5dfc" strokeWidth={2} strokeDasharray="7 5" vectorEffect="non-scaling-stroke" />{polygonPoints.map((point, index) => <circle key={index} cx={point.x} cy={point.y} r={5 / view.zoom} fill="#6d5dfc" />)}</g>}
               {zoomBox && <rect data-ui-only="true" pointerEvents="none" {...normalizeRect(zoomBox.start, zoomBox.end)} fill="rgba(86,72,223,.12)" stroke="#5648df" strokeWidth={1.5} strokeDasharray="7 5" vectorEffect="non-scaling-stroke" />}
@@ -3000,6 +3065,20 @@ function TweakPanel(props: TweakPanelProps) {
     return <><PresetHeader label="まとまり" /><ArraySymbolStyleEditor value={preset} symbolSize={preset.symbolSize} onChange={(patch) => onPresetChange('bundle', patch)} /><BundleValueEditor value={preset.bundleValue} onChange={(bundleValue) => onPresetChange('bundle', { bundleValue })} /></>;
   }
   if (activeTool === 'segment') return <><PresetHeader label="目盛り" /><LineStyleEditor value={presets.segment} onChange={(patch) => onPresetChange('segment', patch)} /><MeasureFields value={presets.segment} onChange={(patch) => onPresetChange('segment', patch)} /></>;
+  if (activeTool === 'function') {
+    const plottedCount = project.expressions.filter((expression) => expression.visible && explicitFunctionBody(expression.source)).length;
+    return (
+      <>
+        <PresetHeader label="関数グラフ" />
+        <div className="function-tool-summary">
+          <strong>{plottedCount > 0 ? `${plottedCount}本を描画中` : '表示中のグラフはありません'}</strong>
+          <span>fウィンドウで式を追加し、<code>y=a*x^2</code> のように入力します。</span>
+        </div>
+        <Toggle label="座標軸を表示" checked={project.canvas.axesVisible} onChange={(checked) => onCanvasChange({ axesVisible: checked })} />
+        <Toggle label="座標グリッドを表示" checked={project.canvas.gridVisible} onChange={(checked) => onCanvasChange({ gridVisible: checked })} />
+      </>
+    );
+  }
   return null;
 }
 
@@ -3291,13 +3370,17 @@ interface ExpressionPanelProps {
 }
 
 function ExpressionPanel({ project, onAddVariable, onUpdateVariable, onDeleteVariable, onAddExpression, onUpdateExpression, onDeleteExpression, onEditDetailed, onPlace, onStartSliderHistory }: ExpressionPanelProps) {
+  const plottedCount = project.expressions.filter((expression) => expression.visible && explicitFunctionBody(expression.source)).length;
   return (
     <>
       <div className="subheading"><span>変数フェーダー</span><button type="button" onClick={onAddVariable}>＋追加</button></div>
       <div className="variable-list">{project.variables.map((variable) => <article className="variable-card" key={variable.id}><div className="variable-head"><input className="variable-name" aria-label="変数名" value={variable.name} onChange={(event) => onUpdateVariable(variable.id, { name: sanitizeExpression(event.target.value).replace(/[^A-Za-z_]/g, '').slice(0, 8) })} /><output>{variable.value}</output><button type="button" className="mini-delete" onClick={() => onDeleteVariable(variable.id)}>×</button></div><input type="range" min={variable.min} max={variable.max} step={variable.step} value={variable.value} onPointerDown={onStartSliderHistory} onChange={(event) => onUpdateVariable(variable.id, { value: Number(event.target.value) }, false)} /><div className="variable-range"><label>最小<AsciiNumber value={variable.min} onChange={(min) => onUpdateVariable(variable.id, { min })} /></label><label>刻み<AsciiNumber value={variable.step} min={0.001} step={0.001} onChange={(step) => onUpdateVariable(variable.id, { step: Math.max(0.001, step) })} /></label><label>最大<AsciiNumber value={variable.max} onChange={(max) => onUpdateVariable(variable.id, { max })} /></label></div></article>)}</div>
       <div className="subheading"><span>数式</span><button type="button" onClick={onAddExpression}>＋追加</button></div>
-      <div className="expression-list">{project.expressions.map((expression) => <article className="expression-card" key={expression.id}><div className="expression-head"><input type="checkbox" checked={expression.visible} onChange={(event) => onUpdateExpression(expression.id, { visible: event.target.checked })} aria-label="表示" /><input className="expression-label" value={expression.label} onChange={(event) => onUpdateExpression(expression.id, { label: event.target.value })} /><button type="button" className="mini-delete" onClick={() => onDeleteExpression(expression.id)}>×</button></div><input className="expression-source" placeholder="例: y=a*x^2" value={expression.source} onChange={(event) => onUpdateExpression(expression.id, { source: sanitizeExpression(event.target.value) }, false)} onBlur={(event) => onUpdateExpression(expression.id, { source: sanitizeExpression(event.target.value) })} /><div className="expression-preview">{expression.source.trim() ? <MathPreview source={expression.source} fontSize={22} className="expression-preview-svg" minWidth={120} /> : <span>数式を入力</span>}</div><div className="expression-actions"><button type="button" onClick={() => onEditDetailed(expression)}>詳細入力</button><button type="button" onClick={() => onPlace(expression)} disabled={!expression.source.trim()}>配置</button></div></article>)}</div>
-      <div className="function-placeholder"><Icon name="function" size={20} /><span>関数グラフ描画はv3で有効になります。</span></div>
+      <div className="expression-list">{project.expressions.map((expression) => {
+        const isFunction = explicitFunctionBody(expression.source) !== null;
+        return <article className="expression-card" key={expression.id}><div className="expression-head"><input type="checkbox" checked={expression.visible} onChange={(event) => onUpdateExpression(expression.id, { visible: event.target.checked })} aria-label="表示" /><input className="expression-label" value={expression.label} onChange={(event) => onUpdateExpression(expression.id, { label: event.target.value })} />{isFunction && <span className={`expression-plot-badge ${expression.visible ? 'is-visible' : ''}`}>グラフ</span>}<button type="button" className="mini-delete" onClick={() => onDeleteExpression(expression.id)}>×</button></div><input className="expression-source" placeholder="例: y=a*x^2" value={expression.source} onChange={(event) => onUpdateExpression(expression.id, { source: sanitizeExpression(event.target.value) }, false)} onBlur={(event) => onUpdateExpression(expression.id, { source: sanitizeExpression(event.target.value) })} /><div className="expression-preview">{expression.source.trim() ? <MathPreview source={expression.source} fontSize={22} className="expression-preview-svg" minWidth={120} /> : <span>数式を入力</span>}</div><div className="expression-actions"><button type="button" onClick={() => onEditDetailed(expression)}>詳細入力</button><button type="button" onClick={() => onPlace(expression)} disabled={!expression.source.trim()}>配置</button></div></article>;
+      })}</div>
+      <div className="function-placeholder"><Icon name="function" size={20} /><span><strong>{plottedCount > 0 ? `${plottedCount}本の関数グラフを表示中` : '関数グラフ'}</strong><small>表示をオンにした <code>y=式</code> を座標上へ描画し、変数フェーダーに連動します。</small></span></div>
     </>
   );
 }

@@ -1,0 +1,16 @@
+node_modules/
+dist/
+.cache/
+.vite/
+coverage/
+.turbo/
+
+*.log
+*.tmp
+*.temp
+*.swp
+*.swo
+*.tsbuildinfo
+
+vite.config.js
+vite.config.d.ts

@@ -2,7 +2,7 @@ import { access, copyFile, readFile, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-const APP_VERSION = '0.4.0-alpha.2';
+const APP_VERSION = '0.4.0-alpha.3';
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const rootDir = resolve(scriptDir, '..');
 const distDir = resolve(rootDir, 'dist');
@@ -64,13 +64,23 @@ let standalone = builtHtml
   .replace(/\s*<link\b[^>]*\brel=["']stylesheet["'][^>]*>/gi, '')
   .replace('</head>', () => `<style>${styles.join('\n').replace(/<\/style/gi, '<\\/style')}</style></head>`);
 
-for (const { tag, code } of scripts) {
-  standalone = standalone.replace(tag, () => `<script>${code.replace(/<\/script/gi, '<\\/script')}</script>`);
+for (const { tag } of scripts) {
+  standalone = standalone.replace(tag, '');
 }
+standalone = standalone.replace(/\n[ \t]+\n(?=[ \t]*<style>)/, '\n\n');
+
+const inlineScripts = scripts
+  .map(({ code }) => `<script>${code.replace(/<\/script/gi, '<\\/script')}</script>`)
+  .join('\n');
+if (!standalone.includes('</body>')) {
+  throw new Error('ビルド済みHTMLにbody終了タグがありません');
+}
+standalone = standalone.replace('</body>', () => `${inlineScripts}</body>`);
 
 standalone = standalone
   .replace('<title>Graphanta</title>', `<title>Graphanta v${APP_VERSION}</title>`)
-  .replace('<!doctype html>', '<!doctype html>\n<!-- 単体起動版: CSS・JavaScriptを内包し、通信なしで動作します。 -->');
+  .replace('<!doctype html>', '<!doctype html>\n<!-- 単体起動版: CSS・JavaScriptを内包し、通信なしで動作します。 -->')
+  .replace(/\r\n?/g, '\n');
 
 const remainingExternalAssets = [...standalone.matchAll(/<(?:script|link)\b[^>]*(?:src|href)=["'](?!data:|#)([^"']+)["']/gi)];
 if (remainingExternalAssets.length > 0) {
