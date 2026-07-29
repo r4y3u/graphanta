@@ -2884,7 +2884,7 @@ function App() {
       <input ref={projectInputRef} type="file" accept=".json,.graphanta.json,application/json" hidden onChange={loadProjectFile} />
       <input ref={settingsInputRef} type="file" accept=".json,.graphanta-settings.json,application/json" hidden onChange={loadSettingsFile} />
 
-      {modal?.kind === 'recovery' && selectedRecoveryRecord && <Modal title="前回の作業を確認" onClose={skipAutosaveRecovery}><div className="recovery-box recovery-box-list">
+      {modal?.kind === 'recovery' && selectedRecoveryRecord && <Modal title="前回の作業を確認" wide onClose={skipAutosaveRecovery}><div className="recovery-box recovery-box-list">
         <div className="recovery-icon"><Icon name="history" size={28} /></div>
         <div className="recovery-summary"><h3>{selectedRecoveryRecord.project.title || '無題のプロジェクト'}</h3><p>自動保存された作業を選んで復元できます。閉じても復旧データは削除されません。</p></div>
         <div className="recovery-versions" role="radiogroup" aria-label="復元する自動保存">
