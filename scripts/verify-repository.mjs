@@ -1,9 +1,12 @@
 import { access, readFile, readdir, stat } from 'node:fs/promises';
+import { execFile } from 'node:child_process';
 import { extname, join, relative, resolve } from 'node:path';
 import process from 'node:process';
+import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
 
 const root = resolve(fileURLToPath(new URL('..', import.meta.url)));
+const execFileAsync = promisify(execFile);
 const failures = [];
 const notes = [];
 
@@ -17,7 +20,7 @@ const requiredFiles = [
   'scripts/build-standalone.mjs',
 ];
 
-const forbiddenDirectoryNames = new Set([
+const localOnlyDirectoryNames = new Set([
   'node_modules',
   'dist',
   '.cache',
@@ -48,7 +51,37 @@ async function exists(path) {
   }
 }
 
-async function walk(directory) {
+function checkForbiddenPath(repositoryPath) {
+  const segments = repositoryPath.split('/');
+  const directorySegments = segments.slice(0, -1);
+  const fileName = segments.at(-1);
+
+  const localOnlyDirectory = directorySegments.find((segment) => localOnlyDirectoryNames.has(segment));
+  if (localOnlyDirectory) {
+    failures.push(`収録禁止ディレクトリ内のファイルがGit管理されています: ${repositoryPath}`);
+  }
+  if (forbiddenFileNames.has(fileName)) {
+    failures.push(`収録禁止ファイルがGit管理されています: ${repositoryPath}`);
+  }
+  if (forbiddenExtensions.has(extname(fileName).toLowerCase())) {
+    failures.push(`一時・生成ファイルがGit管理されています: ${repositoryPath}`);
+  }
+}
+
+async function trackedRepositoryPaths() {
+  try {
+    const { stdout } = await execFileAsync(
+      'git',
+      ['-C', root, 'ls-files', '-z'],
+      { encoding: 'utf8' },
+    );
+    return stdout.split('\0').filter(Boolean).map((path) => path.replaceAll('\\', '/'));
+  } catch {
+    return null;
+  }
+}
+
+async function walkSourceFiles(directory) {
   const entries = await readdir(directory, { withFileTypes: true });
   for (const entry of entries) {
     if (entry.name === '.git') continue;
@@ -56,11 +89,8 @@ async function walk(directory) {
     const repositoryPath = relative(root, absolute).replaceAll('\\', '/');
 
     if (entry.isDirectory()) {
-      if (forbiddenDirectoryNames.has(entry.name)) {
-        failures.push(`収録禁止ディレクトリがあります: ${repositoryPath}/`);
-        continue;
-      }
-      await walk(absolute);
+      if (localOnlyDirectoryNames.has(entry.name)) continue;
+      await walkSourceFiles(absolute);
       continue;
     }
 
@@ -77,7 +107,14 @@ for (const file of requiredFiles) {
   if (!(await exists(join(root, file)))) failures.push(`必須ファイルがありません: ${file}`);
 }
 
-await walk(root);
+const trackedPaths = await trackedRepositoryPaths();
+if (trackedPaths) {
+  for (const repositoryPath of trackedPaths) checkForbiddenPath(repositoryPath);
+  notes.push(`Git管理対象: ${trackedPaths.length} files`);
+} else {
+  await walkSourceFiles(root);
+  notes.push('Git管理情報なし: ローカル生成ディレクトリを除外して検証');
+}
 
 const standalonePath = join(root, 'index.html');
 if (await exists(standalonePath)) {
@@ -90,6 +127,14 @@ if (await exists(standalonePath)) {
   }
   if (!/<script[\s>]/i.test(standalone)) {
     failures.push('index.htmlに内包JavaScriptが見つかりません');
+  }
+
+  const rootElementIndex = standalone.search(/<[^>]+\bid=["']root["'][^>]*>/i);
+  const executableScriptIndex = standalone.search(/<script[\s>]/i);
+  if (rootElementIndex < 0) {
+    failures.push('index.htmlにアプリケーションのroot要素がありません');
+  } else if (executableScriptIndex >= 0 && executableScriptIndex < rootElementIndex) {
+    failures.push('index.htmlのJavaScriptがroot要素より前に同期実行されます');
   }
 
   const externalAssetPattern = /<(?:script|link)\b[^>]*(?:src|href)=["'](?!data:|#)([^"']+)["']/gi;

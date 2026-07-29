@@ -1,7 +1,7 @@
 import { createId } from './lib/geometry';
 import type { GraphantaProject, GraphantaSettings, ToolId } from './types';
 
-export const APP_VERSION = '0.4.0-alpha.2';
+export const APP_VERSION = '0.4.0-alpha.3';
 
 export const ALL_TOOLS: ToolId[] = [
   'select', 'pan', 'zoom', 'pen', 'line', 'arrow', 'rectangle', 'ellipse', 'polygon',
@@ -30,7 +30,7 @@ export const TOOL_LABELS: Record<ToolId, string> = {
   person: '人',
   bundle: 'まとまり',
   segment: '目盛り',
-  function: '関数グラフ（v3）',
+  function: '関数グラフ',
 };
 
 export function createInitialProject(): GraphantaProject {

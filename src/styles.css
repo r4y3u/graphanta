@@ -414,11 +414,19 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .variable-range label { display: grid; gap: 2px; color: #757d90; font-size: 9px; }
 .variable-range input { width: 100%; min-width: 0; border: 1px solid #dce0e9; border-radius: 5px; padding: 3px; font-size: 10px; }
 .expression-label { min-width: 0; flex: 1; border: 0; background: transparent; font-size: 11px; font-weight: 750; }
+.expression-plot-badge { flex: 0 0 auto; padding: 2px 5px; border-radius: 999px; color: #716b83; background: #eeecf5; font-size: 8px; font-weight: 800; }
+.expression-plot-badge.is-visible { color: #fff; background: #6554e8; }
 .expression-source { width: 100%; border: 1px solid #d5dae6; border-radius: 6px; padding: 6px 7px; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 11px; }
 .expression-preview { min-height: 35px; display: flex; align-items: center; padding: 5px 2px; overflow-wrap: anywhere; color: #242c43; font-family: Georgia, "Times New Roman", serif; font-style: italic; font-size: 17px; }
 .expression-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; }
 .expression-actions button:disabled { opacity: .4; cursor: not-allowed; }
-.function-placeholder { display: flex; align-items: center; gap: 8px; margin-top: 12px; padding: 9px; border: 1px dashed #bbb6db; border-radius: 8px; color: #78718f; background: #f7f5ff; font-size: 10px; }
+.function-placeholder { display: flex; align-items: flex-start; gap: 8px; margin-top: 12px; padding: 9px; border: 1px solid #d8d3fa; border-radius: 8px; color: #625b79; background: #f7f5ff; font-size: 10px; }
+.function-placeholder > span { min-width: 0; display: grid; gap: 3px; }
+.function-placeholder strong { color: #3d347f; font-size: 10px; }
+.function-placeholder small { line-height: 1.45; }
+.function-placeholder code, .function-tool-summary code { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
+.function-tool-summary { display: grid; gap: 5px; margin-bottom: 12px; padding: 10px; border: 1px solid #d8d3fa; border-radius: 9px; color: #625b79; background: #f7f5ff; font-size: 10px; line-height: 1.5; }
+.function-tool-summary strong { color: #3d347f; font-size: 11px; }
 
 .primary-button { border-color: transparent !important; color: #fff !important; background: linear-gradient(145deg, #5547dc, #7159ed) !important; box-shadow: 0 6px 14px rgba(86,72,223,.2); }
 .primary-button:hover { filter: brightness(1.04); }

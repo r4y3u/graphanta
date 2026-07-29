@@ -181,10 +181,15 @@ export function variableMap(variables: VariableDef[]): Record<string, number> {
   return Object.fromEntries(variables.map((item) => [item.name, item.value]));
 }
 
-export function evaluateExpression(source: string, variables: VariableDef[]): number {
+export function compileExpression(source: string): (variables: Record<string, number>) => number {
   const normalized = source.trim().replace(/^=/, '');
   if (!normalized) throw new Error('式が空です');
-  return new Parser(tokenize(normalized), variableMap(variables)).parse();
+  const tokens = tokenize(normalized);
+  return (variables) => new Parser(tokens, variables).parse();
+}
+
+export function evaluateExpression(source: string, variables: VariableDef[]): number {
+  return compileExpression(source)(variableMap(variables));
 }
 
 export function resolveNumber(source: string, variables: VariableDef[], fallback: number): number {
