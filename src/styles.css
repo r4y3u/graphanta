@@ -94,12 +94,15 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   font-weight: 650;
   text-align: right;
   text-overflow: ellipsis;
+  white-space: nowrap;
+  overflow: hidden;
 }
 .project-title:hover, .project-title:focus { border-color: var(--line); background: #f8f9fd; }
 
-.menu-actions { display: flex; align-items: center; gap: 4px; min-width: 0; }
+.menu-actions { display: flex; align-items: center; gap: 4px; min-width: 0; max-width: 100%; }
 .menu-actions button,
 .view-control button {
+  flex: 0 0 auto;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -214,6 +217,9 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   gap: 6px;
   overflow-x: hidden;
   overflow-y: auto;
+  overscroll-behavior: contain;
+  touch-action: pan-y;
+  -webkit-overflow-scrolling: touch;
   padding: 8px 6px;
   border: 1px solid #d9deeb;
   border-radius: 14px;
@@ -234,6 +240,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   color: #4a5269;
   background: transparent;
   cursor: pointer;
+  touch-action: pan-y;
 }
 .tool-button:hover:not(:disabled) { color: var(--primary-strong); background: #f1efff; border-color: #ddd8ff; transform: translateY(-1px); }
 .tool-button.is-active { color: #fff; background: linear-gradient(145deg, #5749e2, #6b57ef); box-shadow: 0 7px 15px rgba(86,72,223,.27); }
@@ -499,24 +506,24 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   }
   .app-mark { grid-area: mark; }
   .menu-actions { grid-area: actions; overflow-x: auto; scrollbar-width: none; }
+  .menu-actions { overscroll-behavior-inline: contain; -webkit-overflow-scrolling: touch; }
   .menu-actions::-webkit-scrollbar { display: none; }
   .view-control { grid-area: view; }
   .project-title { grid-area: title; text-align: left; }
   .wordmark { grid-area: wordmark; min-width: 105px; }
 
-  .workspace,
-  .workspace.toolbar-left,
-  .workspace.panels-collapsed,
-  .workspace.toolbar-left.panels-collapsed {
+  .workspace.toolbar-right.panels-right,
+  .workspace.toolbar-right.panels-left {
     grid-template-columns: minmax(0, 1fr) 56px;
-    grid-template-rows: minmax(280px, 1fr) minmax(200px, .68fr);
+    grid-template-rows: minmax(140px, 1fr) minmax(90px, .68fr);
     grid-template-areas:
       "plot tools"
       "panels panels";
   }
-  .workspace.toolbar-left,
-  .workspace.toolbar-left.panels-collapsed {
+  .workspace.toolbar-left.panels-right,
+  .workspace.toolbar-left.panels-left {
     grid-template-columns: 56px minmax(0, 1fr);
+    grid-template-rows: minmax(140px, 1fr) minmax(90px, .68fr);
     grid-template-areas:
       "tools plot"
       "panels panels";
@@ -528,26 +535,60 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   .side-panel.collapsed { align-self: stretch; }
   .side-panel.tweak-panel.collapsed { justify-self: start; }
   .side-panel.expression-panel.collapsed { justify-self: end; }
+  .workspace.toolbar-right.panels-right.panels-collapsed,
+  .workspace.toolbar-right.panels-left.panels-collapsed,
+  .workspace.toolbar-left.panels-right.panels-collapsed,
+  .workspace.toolbar-left.panels-left.panels-collapsed {
+    grid-template-rows: minmax(0, 1fr) 44px;
+  }
+  .workspace.tweak-collapsed .side-panels {
+    grid-template-columns: 44px minmax(0, 1fr);
+  }
+  .workspace.expressions-collapsed .side-panels {
+    grid-template-columns: minmax(0, 1fr) 44px;
+  }
+  .workspace.panels-collapsed .side-panels {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
   .toolbar { overflow-y: auto; }
 }
 
 @media (max-width: 560px) {
   .app-shell { grid-template-rows: 98px minmax(0, 1fr); }
-  .menu-bar { grid-template-columns: 40px minmax(0,1fr) 86px; }
+  .menu-bar {
+    grid-template-columns: 40px minmax(0,1fr) 86px;
+    grid-template-rows: 36px 40px;
+    grid-template-areas:
+      "mark title view"
+      "actions actions actions";
+  }
   .app-mark { width: 36px; height: 36px; }
-  .wordmark { min-width: 82px; }
-  .wordmark strong { font-size: 15px; }
+  .project-title { min-width: 0; height: 36px; padding: 0 7px; }
+  .wordmark { display: none; }
   .menu-actions { gap: 1px; }
   .menu-actions button { min-width: 34px; min-height: 34px; padding: 0 5px; }
   .menu-divider { margin: 0; }
-  .view-control button { font-size: 10px; }
+  .view-control { min-width: 0; gap: 0; padding: 1px; overflow: hidden; }
+  .view-control button { min-width: 0; padding: 0 3px; font-size: 10px; }
+  .view-control output { min-width: 32px; padding-right: 2px; font-size: 10px; }
   .workspace,
   .workspace.toolbar-left,
   .workspace.panels-collapsed,
   .workspace.toolbar-left.panels-collapsed {
     gap: 5px;
     padding: 5px;
-    grid-template-rows: minmax(230px, 1fr) minmax(210px, .85fr);
+  }
+  .workspace.toolbar-right.panels-right,
+  .workspace.toolbar-right.panels-left,
+  .workspace.toolbar-left.panels-right,
+  .workspace.toolbar-left.panels-left {
+    grid-template-rows: minmax(120px, 1fr) minmax(80px, .85fr);
+  }
+  .workspace.toolbar-right.panels-right.panels-collapsed,
+  .workspace.toolbar-right.panels-left.panels-collapsed,
+  .workspace.toolbar-left.panels-right.panels-collapsed,
+  .workspace.toolbar-left.panels-left.panels-collapsed {
+    grid-template-rows: minmax(0, 1fr) 44px;
   }
   .side-panels { gap: 5px; }
   .panel-content { padding: 9px; }
@@ -559,7 +600,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   .workspace.toolbar-right.panels-right,
   .workspace.toolbar-right.panels-left {
     grid-template-columns: minmax(0, 1fr) 56px;
-    grid-template-rows: minmax(270px, 1.08fr) minmax(300px, .92fr);
+    grid-template-rows: minmax(170px, 1.08fr) minmax(170px, .92fr);
     grid-template-areas:
       "plot tools"
       "panels panels";
@@ -567,15 +608,40 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   .workspace.toolbar-left.panels-right,
   .workspace.toolbar-left.panels-left {
     grid-template-columns: 56px minmax(0, 1fr);
-    grid-template-rows: minmax(270px, 1.08fr) minmax(300px, .92fr);
+    grid-template-rows: minmax(170px, 1.08fr) minmax(170px, .92fr);
     grid-template-areas:
       "tools plot"
       "panels panels";
+  }
+  .workspace.toolbar-right.panels-right.tweak-collapsed,
+  .workspace.toolbar-right.panels-left.tweak-collapsed,
+  .workspace.toolbar-right.panels-right.expressions-collapsed,
+  .workspace.toolbar-right.panels-left.expressions-collapsed,
+  .workspace.toolbar-left.panels-right.tweak-collapsed,
+  .workspace.toolbar-left.panels-left.tweak-collapsed,
+  .workspace.toolbar-left.panels-right.expressions-collapsed,
+  .workspace.toolbar-left.panels-left.expressions-collapsed {
+    grid-template-rows: minmax(200px, 1fr) minmax(140px, .72fr);
+  }
+  .workspace.toolbar-right.panels-right.panels-collapsed,
+  .workspace.toolbar-right.panels-left.panels-collapsed,
+  .workspace.toolbar-left.panels-right.panels-collapsed,
+  .workspace.toolbar-left.panels-left.panels-collapsed {
+    grid-template-rows: minmax(0, 1fr) 94px;
   }
   .side-panels {
     grid-template-columns: minmax(0, 1fr);
     grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
     gap: 6px;
+  }
+  .workspace.tweak-collapsed .side-panels {
+    grid-template-rows: 44px minmax(0, 1fr);
+  }
+  .workspace.expressions-collapsed .side-panels {
+    grid-template-rows: minmax(0, 1fr) 44px;
+  }
+  .workspace.panels-collapsed .side-panels {
+    grid-template-rows: 44px 44px;
   }
   .side-panel,
   .side-panel.collapsed {
@@ -602,7 +668,6 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 
 /* alpha.4 grouped tools and parameter editors */
 .cursor-zoom { cursor: zoom-in; }
-.toolbar { overflow: visible; }
 .tool-group { position: relative; flex: 0 0 auto; }
 .tool-group-main { overflow: visible; }
 .group-caret {
@@ -615,9 +680,8 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   opacity: .72;
 }
 .tool-flyout {
-  position: absolute;
-  z-index: 50;
-  top: 0;
+  position: fixed;
+  z-index: 80;
   display: grid;
   gap: 4px;
   min-width: 142px;
@@ -627,9 +691,10 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   background: rgba(255,255,255,.98);
   box-shadow: 0 15px 40px rgba(37,42,72,.22);
   backdrop-filter: blur(14px);
+  max-height: calc(100dvh - 16px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
-.flyout-right { left: calc(100% + 8px); }
-.flyout-left { right: calc(100% + 8px); }
 .tool-flyout-button {
   display: grid;
   grid-template-columns: 28px minmax(0,1fr);
@@ -707,8 +772,6 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 
 @media (max-width: 850px), (max-aspect-ratio: 4 / 5) {
   .tool-flyout { min-width: 132px; }
-  .flyout-right { left: calc(100% + 5px); }
-  .flyout-left { right: calc(100% + 5px); }
 }
 
 /* alpha.5 interaction refinements */
@@ -745,8 +808,8 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   transition: opacity .12s ease, transform .16s cubic-bezier(.2,.75,.25,1), visibility 0s linear .16s;
 }
 /* A right-side toolbar opens toward the plot area (left). The mirrored layout opens inward. */
-.flyout-right { left: auto; right: calc(100% + 8px); transform-origin: right top; }
-.flyout-left { right: auto; left: calc(100% + 8px); transform-origin: left top; transform: translateX(-7px) scale(.98); }
+.flyout-right { right: auto; transform-origin: right top; }
+.flyout-left { right: auto; transform-origin: left top; transform: translateX(-7px) scale(.98); }
 .tool-flyout.is-open {
   opacity: 1;
   visibility: visible;
@@ -754,15 +817,6 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   transform: translateX(0) scale(1);
   transition-delay: 0s;
 }
-.tool-flyout::after {
-  content: "";
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  width: 10px;
-}
-.flyout-right::after { right: -10px; }
-.flyout-left::after { left: -10px; }
 .toolbar-right .group-caret { left: 2px; right: auto; }
 .toolbar-left .group-caret { right: 2px; left: auto; transform: rotate(180deg); }
 .resize-handle {
@@ -834,6 +888,9 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .screenshot-menu-wrap { position: relative; display: flex; align-items: stretch; }
 .menu-actions .screenshot-menu-wrap > button { border-radius: 9px; }
 .menu-actions .screenshot-menu-wrap > button > span { display: inline-flex; align-items: center; }
+@media (max-width: 1180px) {
+  .menu-actions .screenshot-menu-wrap > button > span:not(.shot-next-number) { display: none; }
+}
 .menu-actions .screenshot-menu-wrap > button.is-capturing { color: #fff; background: linear-gradient(145deg,#5749e2,#6b57ef); }
 .shot-next-number { display: grid; place-items: center; min-width: 20px; height: 20px; border-radius: 6px; color: #5749e2; background: #fff; font-size: 12px; font-weight: 900; }
 .screenshot-dropdown {

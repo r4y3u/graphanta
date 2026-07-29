@@ -2769,7 +2769,7 @@ function App() {
         <button type="button" className="wordmark" onClick={() => setModal({ kind: 'about' })}><strong>Graphanta</strong><span>visual mathematics</span></button>
       </header>
 
-      <main className={`workspace toolbar-${settings.toolbarSide} panels-${settings.panelSide} ${panelCollapsed.tweak && panelCollapsed.expressions ? 'panels-collapsed' : ''}`}>
+      <main className={`workspace toolbar-${settings.toolbarSide} panels-${settings.panelSide} ${panelCollapsed.tweak ? 'tweak-collapsed' : ''} ${panelCollapsed.expressions ? 'expressions-collapsed' : ''} ${panelCollapsed.tweak && panelCollapsed.expressions ? 'panels-collapsed' : ''}`}>
         {settings.toolbarSide === 'left' && <Toolbar tools={visibleTools} activeTool={activeTool} side="left" onChange={chooseTool} />}
         <section className="plot-shell">
           <div className="plot-viewport" ref={plotViewportRef}>
