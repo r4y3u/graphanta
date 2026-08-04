@@ -6,7 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="theme-color" content="#4f46e5" />
     <meta name="description" content="Graphanta - 数学的な思考と表現を支える図・グラフ作成アプリ" />
-    <title>Graphanta v0.5.0-alpha.2</title>
+    <title>Graphanta v0.5.0-alpha.4</title>
   <style>:root {
   font-family: Inter, "Noto Sans JP", "Yu Gothic UI", "Yu Gothic", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
   color: #20273b;
@@ -1349,6 +1349,39 @@ button:not(:disabled) {
   .recovery-actions button { flex: 1 1 42%; }
   .recovery-actions .danger-quiet { flex-basis: 100%; order: 3; }
 }
+
+.function-domain-fields {
+  display: grid;
+  gap: 7px;
+  margin: 0 0 9px;
+  padding: 9px;
+  border: 1px solid #e2e5ef;
+  border-radius: 8px;
+  background: #fbfcff;
+}
+.function-domain-fields.has-error { border-color: #e2a5b0; background: #fff8f9; }
+.function-domain-fields .toggle { margin: 0; }
+.function-domain-range {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) max-content minmax(0, 1fr);
+  align-items: end;
+  gap: 6px;
+}
+.function-domain-bound { min-width: 0; display: grid; gap: 3px; color: #687087; font-size: 9px; font-weight: 700; }
+.function-domain-value { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) 30px; gap: 4px; }
+.function-domain-range input { width: 100%; min-width: 0; padding: 6px 7px; border: 1px solid #d7dce8; border-radius: 7px; background: #fff; color: #283047; }
+.function-domain-value button { min-width: 30px; min-height: 30px; padding: 0; border: 1px solid #cfd5e3; border-radius: 7px; color: #6c7488; background: #fff; cursor: pointer; font-size: 14px; line-height: 1; }
+.function-domain-value button:hover { color: var(--primary-strong); border-color: #bdb6f3; background: #f7f5ff; }
+.function-domain-value button.is-inclusive { color: var(--primary-strong); border-color: #bdb6f3; background: #f1efff; }
+.function-domain-endpoint { cursor: pointer; filter: drop-shadow(0 1px 2px rgba(37,45,67,.18)); }
+.function-domain-separator { padding-bottom: 7px; color: #60687e; font-size: 10px; font-weight: 750; white-space: nowrap; }
+.function-domain-help { margin: 0; color: #687087; font-size: 9px; line-height: 1.5; }
+.function-domain-help span { display: block; margin-top: 2px; }
+.function-domain-help code { color: var(--primary-strong); font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-weight: 750; }
+@media (max-width: 380px) {
+  .function-domain-range { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .function-domain-separator { display: none; }
+}
 </style></head>
   <body>
     <div id="root"></div>
@@ -1594,7 +1627,7 @@ function hasRecoverableContent(project) {
     if (project.expressions.length !== 1)
         return true;
     const expression = project.expressions[0];
-    if (!expression || expression.label !== '式1' || expression.source.trim() !== 'y=a*x^2' || expression.visible !== true || expression.annotationVisible === true || (expression.annotationFontSize ?? 24) !== 24 || (expression.color ?? '#6554e8').toLowerCase() !== '#6554e8' || (expression.strokeWidth ?? 2.4) !== 2.4 || (expression.lineStyle ?? 'solid') !== 'solid')
+    if (!expression || expression.label !== '式1' || expression.source.trim() !== 'y=a*x^2' || expression.visible !== true || expression.annotationVisible === true || (expression.annotationFontSize ?? 24) !== 24 || (expression.color ?? '#6554e8').toLowerCase() !== '#6554e8' || (expression.strokeWidth ?? 2.4) !== 2.4 || (expression.lineStyle ?? 'solid') !== 'solid' || expression.domainLimited === true || (expression.domainMin ?? -5) !== -5 || (expression.domainMax ?? 5) !== 5 || expression.domainMinInclusive === false || expression.domainMaxInclusive === false)
         return true;
     if (project.variables.length !== 1)
         return true;
@@ -1807,6 +1840,11 @@ function normalizeProject(value) {
             color,
             strokeWidth: clamp(expression.strokeWidth ?? 2.4, 1, 8),
             lineStyle,
+            domainLimited: expression.domainLimited === true,
+            domainMin: clamp(expression.domainMin ?? -5, -1000000, 1000000),
+            domainMax: clamp(expression.domainMax ?? 5, -1000000, 1000000),
+            domainMinInclusive: expression.domainMinInclusive !== false,
+            domainMaxInclusive: expression.domainMaxInclusive !== false,
         };
     });
     const usedVariableIds = new Set();
@@ -1898,7 +1936,12 @@ function isExpressionData(value) {
         && (expression.annotationFontSize === undefined || Number.isFinite(expression.annotationFontSize))
         && (expression.color === undefined || typeof expression.color === 'string')
         && (expression.strokeWidth === undefined || Number.isFinite(expression.strokeWidth))
-        && (expression.lineStyle === undefined || FUNCTION_LINE_STYLES.includes(expression.lineStyle));
+        && (expression.lineStyle === undefined || FUNCTION_LINE_STYLES.includes(expression.lineStyle))
+        && (expression.domainLimited === undefined || typeof expression.domainLimited === 'boolean')
+        && (expression.domainMin === undefined || Number.isFinite(expression.domainMin))
+        && (expression.domainMax === undefined || Number.isFinite(expression.domainMax))
+        && (expression.domainMinInclusive === undefined || typeof expression.domainMinInclusive === 'boolean')
+        && (expression.domainMaxInclusive === undefined || typeof expression.domainMaxInclusive === 'boolean');
 }
 function isVariableData(value) {
     if (!value || typeof value !== 'object')
@@ -2404,16 +2447,62 @@ function App() {
         return project.expressions.flatMap((expression, index) => {
             if (!expression.visible)
                 return [];
-            const sample = (0, function_plot_1.sampleFunctionExpression)(expression.source, project.variables, range);
-            if (!sample.body || !sample.axis)
+            const parsed = (0, function_plot_1.parseFunctionExpression)(expression.source);
+            if (!parsed)
                 return [];
+            let sampleRange = range;
+            let domainError;
+            let outsideViewport = false;
+            if (expression.domainLimited) {
+                const domainMin = expression.domainMin ?? -5;
+                const domainMax = expression.domainMax ?? 5;
+                if (!Number.isFinite(domainMin) || !Number.isFinite(domainMax) || domainMin >= domainMax) {
+                    domainError = `描画範囲は最小値を最大値より小さくしてください。`;
+                }
+                else if (parsed.axis === 'y') {
+                    const xMin = Math.max(range.xMin, domainMin);
+                    const xMax = Math.min(range.xMax, domainMax);
+                    outsideViewport = xMin >= xMax;
+                    sampleRange = { ...range, xMin, xMax };
+                }
+                else {
+                    const yMin = Math.max(range.yMin, domainMin);
+                    const yMax = Math.min(range.yMax, domainMax);
+                    outsideViewport = yMin >= yMax;
+                    sampleRange = { ...range, yMin, yMax };
+                }
+            }
+            const sample = domainError || outsideViewport
+                ? { axis: parsed.axis, body: parsed.body, segments: [], error: domainError }
+                : (0, function_plot_1.sampleFunctionExpression)(expression.source, project.variables, sampleRange);
+            const endpoints = [];
+            if (expression.domainLimited && !domainError) {
+                const independentMin = parsed.axis === 'y' ? range.xMin : range.yMin;
+                const independentMax = parsed.axis === 'y' ? range.xMax : range.yMax;
+                const boundaries = [
+                    { side: 'min', parameter: expression.domainMin ?? -5, inclusive: expression.domainMinInclusive !== false },
+                    { side: 'max', parameter: expression.domainMax ?? 5, inclusive: expression.domainMaxInclusive !== false },
+                ];
+                for (const boundary of boundaries) {
+                    if (boundary.parameter < independentMin || boundary.parameter > independentMax)
+                        continue;
+                    const evaluated = (0, function_plot_1.evaluateFunctionPoint)(expression.source, project.variables, boundary.parameter);
+                    if (!evaluated)
+                        continue;
+                    const point = evaluated.point;
+                    if (point.x < range.xMin || point.x > range.xMax || point.y < range.yMin || point.y > range.yMax)
+                        continue;
+                    endpoints.push({ side: boundary.side, point: coordinateToWorld(point), inclusive: boundary.inclusive });
+                }
+            }
             return [{
                     expression,
-                    axis: sample.axis,
+                    axis: parsed.axis,
                     color: expression.color ?? FUNCTION_PLOT_COLORS[index % FUNCTION_PLOT_COLORS.length],
                     strokeWidth: clamp(expression.strokeWidth ?? 2.4, 1, 8),
                     lineStyle: FUNCTION_LINE_STYLES.includes(expression.lineStyle) ? expression.lineStyle : 'solid',
                     segments: sample.segments.map((segment) => segment.map(coordinateToWorld)),
+                    endpoints,
                     error: sample.error,
                 }];
         });
@@ -3954,6 +4043,9 @@ function App() {
                 return ((0, jsx_runtime_1.jsxs)("g", { className: isSelected ? 'function-plot is-selected' : 'function-plot', "data-function-expression-id": plot.expression.id, "data-function-segment-count": plot.segments.length, "data-function-error": plot.error || undefined, children: [(0, jsx_runtime_1.jsx)("title", { children: `${plot.expression.label}: ${plot.expression.source}` }), plot.segments.map((points, segmentIndex) => {
                             const path = (0, geometry_1.pointsToPath)(points);
                             return ((0, jsx_runtime_1.jsxs)("g", { children: [isSelected && (0, jsx_runtime_1.jsx)("path", { "data-ui-only": "true", d: path, fill: "none", stroke: "rgba(86,72,223,.24)", strokeWidth: 8, strokeLinecap: "round", strokeLinejoin: "round", vectorEffect: "non-scaling-stroke", pointerEvents: "none" }), (0, jsx_runtime_1.jsx)("path", { d: path, fill: "none", stroke: plot.color, strokeWidth: plot.strokeWidth, strokeDasharray: functionStrokeDasharray(plot.lineStyle), strokeLinecap: "round", strokeLinejoin: "round", vectorEffect: "non-scaling-stroke", pointerEvents: "none" }), (0, jsx_runtime_1.jsx)("path", { d: path, fill: "none", stroke: "transparent", strokeWidth: Math.max(18, plot.strokeWidth + 14), strokeLinecap: "round", strokeLinejoin: "round", vectorEffect: "non-scaling-stroke", pointerEvents: "stroke", "data-function-expression-id": plot.expression.id, className: "function-plot-hit" })] }, segmentIndex));
+                        }), plot.endpoints.map((endpoint) => {
+                            const radius = (5 + Math.min(3, plot.strokeWidth * 0.4)) / Math.max(view.zoom, 0.25);
+                            return (0, jsx_runtime_1.jsx)("circle", { className: `function-domain-endpoint ${endpoint.inclusive ? 'is-inclusive' : 'is-exclusive'}`, "data-function-expression-id": plot.expression.id, "data-function-domain-endpoint": endpoint.side, cx: endpoint.point.x, cy: endpoint.point.y, r: radius, fill: endpoint.inclusive ? plot.color : project.canvas.background, stroke: plot.color, strokeWidth: Math.max(2, plot.strokeWidth), vectorEffect: "non-scaling-stroke", pointerEvents: "all" }, `endpoint-${endpoint.side}`);
                         }), annotation && annotationMeasure && ((0, jsx_runtime_1.jsxs)("g", { className: `function-annotation ${isSelected ? 'is-selected' : ''}`, children: [(0, jsx_runtime_1.jsx)("line", { x1: annotation.anchor.x, y1: annotation.anchor.y, x2: annotation.x + annotation.width / 2, y2: annotation.y + annotation.height / 2, stroke: plot.color, strokeWidth: 1.2, strokeDasharray: "4 4", vectorEffect: "non-scaling-stroke", pointerEvents: "none" }), (0, jsx_runtime_1.jsxs)("g", { "data-function-label-id": plot.expression.id, className: "function-annotation-label", children: [(0, jsx_runtime_1.jsx)("rect", { x: annotation.x, y: annotation.y, width: annotation.width, height: annotation.height, rx: 8, fill: "rgba(255,255,255,.94)", stroke: isSelected ? '#5648df' : plot.color, strokeWidth: isSelected ? 1.8 : 1.1, vectorEffect: "non-scaling-stroke" }), (0, jsx_runtime_1.jsx)(StructuredMath_1.StructuredMath, { source: plot.expression.source, x: annotation.x + (annotation.width - annotationMeasure.width) / 2, y: annotation.y + (annotation.height - annotationMeasure.height) / 2 + annotationMeasure.baseline, fontSize: annotation.fontSize, color: "#252d43" }), (0, jsx_runtime_1.jsx)("rect", { x: annotation.x, y: annotation.y, width: annotation.width, height: annotation.height, rx: 8, fill: "transparent", pointerEvents: "all", "data-function-label-id": plot.expression.id })] }), isSelected && (0, jsx_runtime_1.jsx)("circle", { "data-ui-only": "true", "data-function-label-resize-id": plot.expression.id, cx: annotation.x + annotation.width, cy: annotation.y + annotation.height, r: 7 / Math.max(view.zoom, 0.25), fill: "#ffffff", stroke: "#5648df", strokeWidth: 2, vectorEffect: "non-scaling-stroke", className: "function-annotation-resize" })] }))] }, plot.expression.id));
             }) }));
     }
@@ -4157,6 +4249,11 @@ function App() {
             color: FUNCTION_PLOT_COLORS[project.expressions.length % FUNCTION_PLOT_COLORS.length],
             strokeWidth: 2.4,
             lineStyle: 'solid',
+            domainLimited: false,
+            domainMin: -5,
+            domainMax: 5,
+            domainMinInclusive: true,
+            domainMaxInclusive: true,
         };
         mutateProject((current) => ({ ...current, expressions: [...current.expressions, expression] }));
         setSelectedExpressionId(expression.id);
@@ -4450,10 +4547,18 @@ function FunctionTweakEditor({ project, selectedExpression, selectedFunctionPlot
     const isPlotting = Boolean(selected?.visible && plot && plot.segments.length > 0);
     const badgeLabel = !selected?.visible ? '非表示' : !parsed ? '式形式' : plotError ? 'エラー' : isPlotting ? '描画中' : 'グラフ';
     const badgeClass = !selected?.visible ? 'is-hidden' : plotError || !parsed ? 'is-error' : isPlotting ? 'is-visible' : '';
+    const domainAxis = parsed?.axis === 'x' ? 'y' : 'x';
+    const domainMin = selected?.domainMin ?? -5;
+    const domainMax = selected?.domainMax ?? 5;
+    const domainInvalid = Boolean(selected?.domainLimited && domainMin >= domainMax);
+    const domainMinInclusive = selected?.domainMinInclusive !== false;
+    const domainMaxInclusive = selected?.domainMaxInclusive !== false;
+    const domainMinSign = domainMinInclusive ? '≦' : '<';
+    const domainMaxSign = domainMaxInclusive ? '≦' : '<';
     return ((0, jsx_runtime_1.jsxs)(jsx_runtime_1.Fragment, { children: [(0, jsx_runtime_1.jsxs)("div", { className: "subheading", children: [(0, jsx_runtime_1.jsx)("span", { children: "\u95A2\u6570\u30B0\u30E9\u30D5" }), (0, jsx_runtime_1.jsx)("button", { type: "button", onClick: onAddExpression, children: "\uFF0B\u8FFD\u52A0" })] }), project.expressions.length > 0 ? (0, jsx_runtime_1.jsx)("div", { className: "function-expression-picker", role: "listbox", "aria-label": "\u95A2\u6570\u5F0F\u306E\u9078\u629E", children: project.expressions.map((expression, index) => {
                     const isSelected = expression.id === selected?.id;
                     return (0, jsx_runtime_1.jsxs)("button", { type: "button", role: "option", "aria-selected": isSelected, className: `${isSelected ? 'is-selected' : ''} ${expression.visible ? '' : 'is-hidden'}`, onClick: () => onSelectExpression(expression.id), title: expression.source || '数式未入力', children: [(0, jsx_runtime_1.jsx)("i", { style: { background: expression.color ?? FUNCTION_PLOT_COLORS[index % FUNCTION_PLOT_COLORS.length] } }), (0, jsx_runtime_1.jsxs)("span", { children: [(0, jsx_runtime_1.jsx)("strong", { children: expression.label || `式${index + 1}` }), (0, jsx_runtime_1.jsx)("small", { children: expression.source || '数式未入力' })] })] }, expression.id);
-                }) }) : (0, jsx_runtime_1.jsxs)("div", { className: "function-empty", children: [(0, jsx_runtime_1.jsx)(Icon_1.Icon, { name: "function", size: 24 }), (0, jsx_runtime_1.jsx)("span", { children: "\u95A2\u6570\u5F0F\u304C\u3042\u308A\u307E\u305B\u3093\u3002\u8FFD\u52A0\u3057\u3066\u304F\u3060\u3055\u3044\u3002" })] }), selected && (0, jsx_runtime_1.jsxs)("article", { className: `expression-card function-tweak-card ${plotError || !parsed ? 'has-error' : ''}`, children: [(0, jsx_runtime_1.jsxs)("div", { className: "expression-head", children: [(0, jsx_runtime_1.jsx)("input", { className: "expression-label", "aria-label": "\u6570\u5F0F\u540D", value: selected.label, onChange: (event) => onUpdateExpression(selected.id, { label: event.target.value }) }), (0, jsx_runtime_1.jsx)("span", { className: `expression-plot-badge ${badgeClass}`, children: badgeLabel }), (0, jsx_runtime_1.jsx)("button", { type: "button", className: `mini-icon-button ${selected.visible ? '' : 'is-active'}`, "aria-label": selected.visible ? 'グラフを非表示にする' : 'グラフを表示する', title: selected.visible ? '非表示' : '表示', onClick: () => onUpdateExpression(selected.id, { visible: !selected.visible }), children: (0, jsx_runtime_1.jsx)(Icon_1.Icon, { name: selected.visible ? 'visibilityOff' : 'visibility', size: 17 }) }), (0, jsx_runtime_1.jsx)("button", { type: "button", className: "mini-icon-button danger", "aria-label": "\u6570\u5F0F\u3092\u524A\u9664", title: "\u524A\u9664", onClick: () => onDeleteExpression(selected.id), children: (0, jsx_runtime_1.jsx)(Icon_1.Icon, { name: "delete", size: 17 }) })] }), (0, jsx_runtime_1.jsx)("input", { className: `expression-source ${plotError || !parsed ? 'is-invalid' : ''}`, "aria-invalid": plotError || !parsed ? true : undefined, "aria-describedby": plotError || !parsed ? `expression-error-${selected.id}` : undefined, placeholder: "\u4F8B: y=a*x^2 \u307E\u305F\u306F x=5", value: selected.source, onChange: (event) => onUpdateExpression(selected.id, { source: sanitizeExpression(event.target.value) }, false), onBlur: (event) => onUpdateExpression(selected.id, { source: sanitizeExpression(event.target.value) }) }), (plotError || !parsed) && (0, jsx_runtime_1.jsx)("p", { className: "expression-error", id: `expression-error-${selected.id}`, role: "status", children: plotError ?? '関数式は y=式 または x=式 の形で入力してください。' }), (0, jsx_runtime_1.jsx)("div", { className: "expression-preview", children: selected.source.trim() ? (0, jsx_runtime_1.jsx)(StructuredMath_1.MathPreview, { source: selected.source, fontSize: 22, className: "expression-preview-svg", minWidth: 120 }) : (0, jsx_runtime_1.jsx)("span", { children: "\u6570\u5F0F\u3092\u5165\u529B" }) }), (0, jsx_runtime_1.jsxs)("div", { className: "function-style-fields", children: [(0, jsx_runtime_1.jsx)(Field, { label: "\u7DDA\u306E\u8272", children: (0, jsx_runtime_1.jsx)("input", { type: "color", value: selected.color ?? '#6554e8', onChange: (event) => onUpdateExpression(selected.id, { color: event.target.value }) }) }), (0, jsx_runtime_1.jsx)(Field, { label: "\u7DDA\u306E\u592A\u3055", labelActions: (0, jsx_runtime_1.jsx)(StepButtons, { value: selected.strokeWidth ?? 2.4, min: 1, max: 8, step: 0.5, onChange: (strokeWidth) => onUpdateExpression(selected.id, { strokeWidth }) }), children: (0, jsx_runtime_1.jsx)(RangeNumber, { value: selected.strokeWidth ?? 2.4, min: 1, max: 8, step: 0.5, onChange: (strokeWidth) => onUpdateExpression(selected.id, { strokeWidth }) }) }), (0, jsx_runtime_1.jsx)(Field, { label: "\u7DDA\u306E\u7A2E\u985E", children: (0, jsx_runtime_1.jsxs)("select", { value: selected.lineStyle ?? 'solid', onChange: (event) => onUpdateExpression(selected.id, { lineStyle: event.target.value }), children: [(0, jsx_runtime_1.jsx)("option", { value: "solid", children: "\u5B9F\u7DDA" }), (0, jsx_runtime_1.jsx)("option", { value: "dashed", children: "\u7834\u7DDA" }), (0, jsx_runtime_1.jsx)("option", { value: "dotted", children: "\u70B9\u7DDA" })] }) })] }), (0, jsx_runtime_1.jsxs)("div", { className: "expression-actions function-expression-actions", children: [(0, jsx_runtime_1.jsx)("button", { type: "button", onClick: () => onEditDetailed(selected), children: "\u8A73\u7D30\u5165\u529B" }), (0, jsx_runtime_1.jsx)("button", { type: "button", className: selected.annotationVisible ? 'is-active' : '', "aria-pressed": selected.annotationVisible === true, onClick: () => onUpdateExpression(selected.id, { annotationVisible: !selected.annotationVisible, ...(!selected.annotationVisible ? { visible: true } : {}) }), disabled: !parsed, children: "\u508D\u8A18" })] }), selected.annotationVisible && parsed && (0, jsx_runtime_1.jsxs)(jsx_runtime_1.Fragment, { children: [(0, jsx_runtime_1.jsx)(Field, { label: "\u508D\u8A18\u30B5\u30A4\u30BA", children: (0, jsx_runtime_1.jsx)(RangeNumber, { value: selected.annotationFontSize ?? 24, min: 12, max: 72, step: 1, onChange: (annotationFontSize) => onUpdateExpression(selected.id, { annotationFontSize }) }) }), (0, jsx_runtime_1.jsx)("p", { className: "annotation-help", children: "\u508D\u8A18\u3092\u30C9\u30E9\u30C3\u30B0\u3059\u308B\u3068\u30B0\u30E9\u30D5\u306B\u6CBF\u3063\u3066\u79FB\u52D5\u3057\u307E\u3059\u3002\u9078\u629E\u6642\u306E\u53F3\u4E0B\u306E\u70B9\u3092\u30C9\u30E9\u30C3\u30B0\u3059\u308B\u3068\u62E1\u5927\u30FB\u7E2E\u5C0F\u3067\u304D\u307E\u3059\u3002" })] })] }), (0, jsx_runtime_1.jsxs)("div", { className: `function-placeholder ${functionPlotErrorCount > 0 ? 'has-error' : ''}`, children: [(0, jsx_runtime_1.jsx)(Icon_1.Icon, { name: "function", size: 20 }), (0, jsx_runtime_1.jsxs)("span", { children: [(0, jsx_runtime_1.jsx)("strong", { children: plottedFunctionCount > 0 ? `${plottedFunctionCount}本の関数グラフを表示中` : functionPlotErrorCount > 0 ? '式を確認してください' : '関数グラフ' }), (0, jsx_runtime_1.jsx)("small", { children: functionPlotErrorCount > 0 ? `${functionPlotErrorCount}件の式を描画できません。上のエラー表示を修正してください。` : (0, jsx_runtime_1.jsxs)(jsx_runtime_1.Fragment, { children: ["\u8ECC\u8DE1\u3092\u30BF\u30C3\u30D7\u3059\u308B\u3068\u3053\u306E\u30C4\u30A6\u30A3\u30FC\u30AF\u3078\u5207\u308A\u66FF\u308F\u308A\u307E\u3059\u3002", (0, jsx_runtime_1.jsx)("code", { children: "y=\u5F0F" }), " \u3068 ", (0, jsx_runtime_1.jsx)("code", { children: "x=\u5F0F" }), " \u306B\u5BFE\u5FDC\u3057\u307E\u3059\u3002"] }) })] })] }), (0, jsx_runtime_1.jsx)(Toggle, { label: "\u5EA7\u6A19\u8EF8\u3092\u8868\u793A", checked: project.canvas.axesVisible, onChange: (checked) => onCanvasChange({ axesVisible: checked }) }), (0, jsx_runtime_1.jsx)(Toggle, { label: "\u5EA7\u6A19\u30B0\u30EA\u30C3\u30C9\u3092\u8868\u793A", checked: project.canvas.gridVisible, onChange: (checked) => onCanvasChange({ gridVisible: checked }) })] }));
+                }) }) : (0, jsx_runtime_1.jsxs)("div", { className: "function-empty", children: [(0, jsx_runtime_1.jsx)(Icon_1.Icon, { name: "function", size: 24 }), (0, jsx_runtime_1.jsx)("span", { children: "\u95A2\u6570\u5F0F\u304C\u3042\u308A\u307E\u305B\u3093\u3002\u8FFD\u52A0\u3057\u3066\u304F\u3060\u3055\u3044\u3002" })] }), selected && (0, jsx_runtime_1.jsxs)("article", { className: `expression-card function-tweak-card ${plotError || !parsed ? 'has-error' : ''}`, children: [(0, jsx_runtime_1.jsxs)("div", { className: "expression-head", children: [(0, jsx_runtime_1.jsx)("input", { className: "expression-label", "aria-label": "\u6570\u5F0F\u540D", value: selected.label, onChange: (event) => onUpdateExpression(selected.id, { label: event.target.value }) }), (0, jsx_runtime_1.jsx)("span", { className: `expression-plot-badge ${badgeClass}`, children: badgeLabel }), (0, jsx_runtime_1.jsx)("button", { type: "button", className: `mini-icon-button ${selected.visible ? '' : 'is-active'}`, "aria-label": selected.visible ? 'グラフを非表示にする' : 'グラフを表示する', title: selected.visible ? '非表示' : '表示', onClick: () => onUpdateExpression(selected.id, { visible: !selected.visible }), children: (0, jsx_runtime_1.jsx)(Icon_1.Icon, { name: selected.visible ? 'visibilityOff' : 'visibility', size: 17 }) }), (0, jsx_runtime_1.jsx)("button", { type: "button", className: "mini-icon-button danger", "aria-label": "\u6570\u5F0F\u3092\u524A\u9664", title: "\u524A\u9664", onClick: () => onDeleteExpression(selected.id), children: (0, jsx_runtime_1.jsx)(Icon_1.Icon, { name: "delete", size: 17 }) })] }), (0, jsx_runtime_1.jsx)("input", { className: `expression-source ${plotError || !parsed ? 'is-invalid' : ''}`, "aria-invalid": plotError || !parsed ? true : undefined, "aria-describedby": plotError || !parsed ? `expression-error-${selected.id}` : undefined, placeholder: "\u4F8B: y=a*x^2 \u307E\u305F\u306F x=5", value: selected.source, onChange: (event) => onUpdateExpression(selected.id, { source: sanitizeExpression(event.target.value) }, false), onBlur: (event) => onUpdateExpression(selected.id, { source: sanitizeExpression(event.target.value) }) }), (plotError || !parsed) && (0, jsx_runtime_1.jsx)("p", { className: "expression-error", id: `expression-error-${selected.id}`, role: "status", children: plotError ?? '関数式は y=式 または x=式 の形で入力してください。' }), (0, jsx_runtime_1.jsx)("div", { className: "expression-preview", children: selected.source.trim() ? (0, jsx_runtime_1.jsx)(StructuredMath_1.MathPreview, { source: selected.source, fontSize: 22, className: "expression-preview-svg", minWidth: 120 }) : (0, jsx_runtime_1.jsx)("span", { children: "\u6570\u5F0F\u3092\u5165\u529B" }) }), (0, jsx_runtime_1.jsxs)("div", { className: "function-style-fields", children: [(0, jsx_runtime_1.jsx)(Field, { label: "\u7DDA\u306E\u8272", children: (0, jsx_runtime_1.jsx)("input", { type: "color", value: selected.color ?? '#6554e8', onChange: (event) => onUpdateExpression(selected.id, { color: event.target.value }) }) }), (0, jsx_runtime_1.jsx)(Field, { label: "\u7DDA\u306E\u592A\u3055", labelActions: (0, jsx_runtime_1.jsx)(StepButtons, { value: selected.strokeWidth ?? 2.4, min: 1, max: 8, step: 0.5, onChange: (strokeWidth) => onUpdateExpression(selected.id, { strokeWidth }) }), children: (0, jsx_runtime_1.jsx)(RangeNumber, { value: selected.strokeWidth ?? 2.4, min: 1, max: 8, step: 0.5, onChange: (strokeWidth) => onUpdateExpression(selected.id, { strokeWidth }) }) }), (0, jsx_runtime_1.jsx)(Field, { label: "\u7DDA\u306E\u7A2E\u985E", children: (0, jsx_runtime_1.jsxs)("select", { value: selected.lineStyle ?? 'solid', onChange: (event) => onUpdateExpression(selected.id, { lineStyle: event.target.value }), children: [(0, jsx_runtime_1.jsx)("option", { value: "solid", children: "\u5B9F\u7DDA" }), (0, jsx_runtime_1.jsx)("option", { value: "dashed", children: "\u7834\u7DDA" }), (0, jsx_runtime_1.jsx)("option", { value: "dotted", children: "\u70B9\u7DDA" })] }) })] }), (0, jsx_runtime_1.jsxs)("div", { className: `function-domain-fields ${domainInvalid ? 'has-error' : ''}`, children: [(0, jsx_runtime_1.jsx)(Toggle, { label: "\u63CF\u753B\u7BC4\u56F2\u3092\u6307\u5B9A", checked: selected.domainLimited === true, onChange: (domainLimited) => onUpdateExpression(selected.id, { domainLimited }), compact: true }), selected.domainLimited && (0, jsx_runtime_1.jsxs)("div", { className: "function-domain-range", children: [(0, jsx_runtime_1.jsxs)("div", { className: "function-domain-bound", children: [(0, jsx_runtime_1.jsxs)("span", { children: [domainAxis, " \u6700\u5C0F"] }), (0, jsx_runtime_1.jsxs)("div", { className: "function-domain-value", children: [(0, jsx_runtime_1.jsx)(AsciiNumber, { value: domainMin, invalid: domainInvalid, onChange: (domainMin) => onUpdateExpression(selected.id, { domainMin }) }), (0, jsx_runtime_1.jsx)("button", { type: "button", className: domainMinInclusive ? 'is-inclusive' : '', "aria-pressed": domainMinInclusive, "aria-label": `最小端点を${domainMinInclusive ? '含まない' : '含む'}設定にする`, title: domainMinInclusive ? '● 端点を含む' : '○ 端点を含まない', onClick: () => onUpdateExpression(selected.id, { domainMinInclusive: !domainMinInclusive }), children: domainMinInclusive ? '●' : '○' })] })] }), (0, jsx_runtime_1.jsxs)("span", { className: "function-domain-separator", children: [domainMinSign, " ", domainAxis, " ", domainMaxSign] }), (0, jsx_runtime_1.jsxs)("div", { className: "function-domain-bound", children: [(0, jsx_runtime_1.jsxs)("span", { children: [domainAxis, " \u6700\u5927"] }), (0, jsx_runtime_1.jsxs)("div", { className: "function-domain-value", children: [(0, jsx_runtime_1.jsx)(AsciiNumber, { value: domainMax, invalid: domainInvalid, onChange: (domainMax) => onUpdateExpression(selected.id, { domainMax }) }), (0, jsx_runtime_1.jsx)("button", { type: "button", className: domainMaxInclusive ? 'is-inclusive' : '', "aria-pressed": domainMaxInclusive, "aria-label": `最大端点を${domainMaxInclusive ? '含まない' : '含む'}設定にする`, title: domainMaxInclusive ? '● 端点を含む' : '○ 端点を含まない', onClick: () => onUpdateExpression(selected.id, { domainMaxInclusive: !domainMaxInclusive }), children: domainMaxInclusive ? '●' : '○' })] })] })] }), selected.domainLimited && domainInvalid && (0, jsx_runtime_1.jsx)("p", { className: "field-error", children: "\u6700\u5C0F\u5024\u306F\u6700\u5927\u5024\u3088\u308A\u5C0F\u3055\u304F\u3057\u3066\u304F\u3060\u3055\u3044\u3002" }), selected.domainLimited && !domainInvalid && (0, jsx_runtime_1.jsxs)("p", { className: "function-domain-help", children: [(0, jsx_runtime_1.jsxs)("code", { children: [domainMin, " ", domainMinSign, " ", domainAxis, " ", domainMaxSign, " ", domainMax] }), " \u306E\u7BC4\u56F2\u3060\u3051\u63CF\u753B\u3057\u307E\u3059\u3002", (0, jsx_runtime_1.jsx)("span", { children: "\u25CF\u306F\u7AEF\u70B9\u3092\u542B\u307F\u3001\u25CB\u306F\u542B\u307F\u307E\u305B\u3093\u3002" })] })] }), (0, jsx_runtime_1.jsxs)("div", { className: "expression-actions function-expression-actions", children: [(0, jsx_runtime_1.jsx)("button", { type: "button", onClick: () => onEditDetailed(selected), children: "\u8A73\u7D30\u5165\u529B" }), (0, jsx_runtime_1.jsx)("button", { type: "button", className: selected.annotationVisible ? 'is-active' : '', "aria-pressed": selected.annotationVisible === true, onClick: () => onUpdateExpression(selected.id, { annotationVisible: !selected.annotationVisible, ...(!selected.annotationVisible ? { visible: true } : {}) }), disabled: !parsed, children: "\u508D\u8A18" })] }), selected.annotationVisible && parsed && (0, jsx_runtime_1.jsxs)(jsx_runtime_1.Fragment, { children: [(0, jsx_runtime_1.jsx)(Field, { label: "\u508D\u8A18\u30B5\u30A4\u30BA", children: (0, jsx_runtime_1.jsx)(RangeNumber, { value: selected.annotationFontSize ?? 24, min: 12, max: 72, step: 1, onChange: (annotationFontSize) => onUpdateExpression(selected.id, { annotationFontSize }) }) }), (0, jsx_runtime_1.jsx)("p", { className: "annotation-help", children: "\u508D\u8A18\u3092\u30C9\u30E9\u30C3\u30B0\u3059\u308B\u3068\u30B0\u30E9\u30D5\u306B\u6CBF\u3063\u3066\u79FB\u52D5\u3057\u307E\u3059\u3002\u9078\u629E\u6642\u306E\u53F3\u4E0B\u306E\u70B9\u3092\u30C9\u30E9\u30C3\u30B0\u3059\u308B\u3068\u62E1\u5927\u30FB\u7E2E\u5C0F\u3067\u304D\u307E\u3059\u3002" })] })] }), (0, jsx_runtime_1.jsxs)("div", { className: `function-placeholder ${functionPlotErrorCount > 0 ? 'has-error' : ''}`, children: [(0, jsx_runtime_1.jsx)(Icon_1.Icon, { name: "function", size: 20 }), (0, jsx_runtime_1.jsxs)("span", { children: [(0, jsx_runtime_1.jsx)("strong", { children: plottedFunctionCount > 0 ? `${plottedFunctionCount}本の関数グラフを表示中` : functionPlotErrorCount > 0 ? '式を確認してください' : '関数グラフ' }), (0, jsx_runtime_1.jsx)("small", { children: functionPlotErrorCount > 0 ? `${functionPlotErrorCount}件の式を描画できません。上のエラー表示を修正してください。` : (0, jsx_runtime_1.jsxs)(jsx_runtime_1.Fragment, { children: ["\u8ECC\u8DE1\u3092\u30BF\u30C3\u30D7\u3059\u308B\u3068\u3053\u306E\u30C4\u30A6\u30A3\u30FC\u30AF\u3078\u5207\u308A\u66FF\u308F\u308A\u307E\u3059\u3002", (0, jsx_runtime_1.jsx)("code", { children: "y=\u5F0F" }), " \u3068 ", (0, jsx_runtime_1.jsx)("code", { children: "x=\u5F0F" }), "\u3001\u63CF\u753B\u7BC4\u56F2\u3068\u7AEF\u70B9\u306E\u25CF\uFF0F\u25CB\u6307\u5B9A\u306B\u5BFE\u5FDC\u3057\u307E\u3059\u3002"] }) })] })] }), (0, jsx_runtime_1.jsx)(Toggle, { label: "\u5EA7\u6A19\u8EF8\u3092\u8868\u793A", checked: project.canvas.axesVisible, onChange: (checked) => onCanvasChange({ axesVisible: checked }) }), (0, jsx_runtime_1.jsx)(Toggle, { label: "\u5EA7\u6A19\u30B0\u30EA\u30C3\u30C9\u3092\u8868\u793A", checked: project.canvas.gridVisible, onChange: (checked) => onCanvasChange({ gridVisible: checked }) })] }));
 }
 function VariablePanel({ project, onAddVariable, onUpdateVariable, onDeleteVariable, onStartSliderHistory }) {
     return ((0, jsx_runtime_1.jsxs)(jsx_runtime_1.Fragment, { children: [(0, jsx_runtime_1.jsxs)("div", { className: "subheading", children: [(0, jsx_runtime_1.jsx)("span", { children: "\u5909\u6570\u30D5\u30A7\u30FC\u30C0\u30FC" }), (0, jsx_runtime_1.jsx)("button", { type: "button", onClick: onAddVariable, children: "\uFF0B\u8FFD\u52A0" })] }), (0, jsx_runtime_1.jsx)("div", { className: "variable-list", children: project.variables.map((variable) => (0, jsx_runtime_1.jsxs)("article", { className: "variable-card", children: [(0, jsx_runtime_1.jsxs)("div", { className: "variable-head", children: [(0, jsx_runtime_1.jsx)("input", { className: "variable-name", "aria-label": "\u5909\u6570\u540D", value: variable.name, onChange: (event) => onUpdateVariable(variable.id, { name: sanitizeExpression(event.target.value).replace(/[^A-Za-z_]/g, '').slice(0, 8) }) }), (0, jsx_runtime_1.jsx)("output", { children: variable.value }), (0, jsx_runtime_1.jsx)("button", { type: "button", className: "mini-icon-button danger", "aria-label": `${variable.name}を削除`, title: "\u524A\u9664", onClick: () => onDeleteVariable(variable.id), children: (0, jsx_runtime_1.jsx)(Icon_1.Icon, { name: "delete", size: 17 }) })] }), (0, jsx_runtime_1.jsx)("input", { type: "range", min: variable.min, max: variable.max, step: variable.step, value: variable.value, onPointerDown: onStartSliderHistory, onChange: (event) => onUpdateVariable(variable.id, { value: Number(event.target.value) }, false) }), (0, jsx_runtime_1.jsxs)("div", { className: "variable-range", children: [(0, jsx_runtime_1.jsxs)("label", { children: ["\u6700\u5C0F", (0, jsx_runtime_1.jsx)(AsciiNumber, { value: variable.min, onChange: (min) => onUpdateVariable(variable.id, { min }) })] }), (0, jsx_runtime_1.jsxs)("label", { children: ["\u523B\u307F", (0, jsx_runtime_1.jsx)(AsciiNumber, { value: variable.step, min: 0.001, step: 0.001, onChange: (step) => onUpdateVariable(variable.id, { step: Math.max(0.001, step) }) })] }), (0, jsx_runtime_1.jsxs)("label", { children: ["\u6700\u5927", (0, jsx_runtime_1.jsx)(AsciiNumber, { value: variable.max, onChange: (max) => onUpdateVariable(variable.id, { max }) })] })] })] }, variable.id)) }), project.variables.length === 0 && (0, jsx_runtime_1.jsx)("p", { className: "panel-hint", children: "\u5909\u6570\u3092\u8FFD\u52A0\u3059\u308B\u3068\u3001\u95A2\u6570\u5F0F\u3084\u56F3\u5F62\u306E\u6570\u5024\u3092\u30D5\u30A7\u30FC\u30C0\u30FC\u3067\u9023\u52D5\u3055\u305B\u3089\u308C\u307E\u3059\u3002" })] }));
@@ -4859,7 +4964,7 @@ exports.TOOL_LABELS = exports.BASIC_TOOLS = exports.ALL_TOOLS = exports.APP_VERS
 exports.createInitialProject = createInitialProject;
 exports.createDefaultSettings = createDefaultSettings;
 const geometry_1 = require("./lib/geometry");
-exports.APP_VERSION = '0.5.0-alpha.2';
+exports.APP_VERSION = '0.5.0-alpha.4';
 exports.ALL_TOOLS = [
     'select', 'pan', 'zoom', 'pen', 'line', 'arrow', 'rectangle', 'ellipse', 'polygon',
     'text', 'math', 'array', 'ball', 'person', 'bundle', 'segment', 'function',
@@ -4909,7 +5014,7 @@ function createInitialProject() {
         },
         objects: [],
         expressions: [
-            { id: (0, geometry_1.createId)('expr'), label: '式1', source: 'y=a*x^2', visible: true, annotationVisible: false, annotationFontSize: 24, color: '#6554e8', strokeWidth: 2.4, lineStyle: 'solid' },
+            { id: (0, geometry_1.createId)('expr'), label: '式1', source: 'y=a*x^2', visible: true, annotationVisible: false, annotationFontSize: 24, color: '#6554e8', strokeWidth: 2.4, lineStyle: 'solid', domainLimited: false, domainMin: -5, domainMax: 5, domainMinInclusive: true, domainMaxInclusive: true },
         ],
         variables: [
             { id: (0, geometry_1.createId)('var'), name: 'a', value: 4, min: 1, max: 12, step: 1 },
@@ -4934,10 +5039,35 @@ function createDefaultSettings() {
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.sampleExplicitFunction = void 0;
+exports.evaluateFunctionPoint = evaluateFunctionPoint;
 exports.parseFunctionExpression = parseFunctionExpression;
 exports.explicitFunctionBody = explicitFunctionBody;
 exports.sampleFunctionExpression = sampleFunctionExpression;
 const math_1 = require("./math");
+function evaluateFunctionPoint(source, variables, parameter) {
+    const parsed = parseFunctionExpression(source);
+    if (!parsed || !Number.isFinite(parameter))
+        return null;
+    try {
+        const values = (0, math_1.variableMap)(variables);
+        if (parsed.axis === 'y')
+            values.x = parameter;
+        else
+            values.y = parameter;
+        const dependent = (0, math_1.compileExpression)(parsed.body)(values);
+        if (!Number.isFinite(dependent))
+            return null;
+        return {
+            axis: parsed.axis,
+            point: parsed.axis === 'y'
+                ? { x: parameter, y: dependent }
+                : { x: dependent, y: parameter },
+        };
+    }
+    catch {
+        return null;
+    }
+}
 function parseFunctionExpression(source) {
     const match = source.trim().match(/^([xy])\s*=\s*(.+)$/i);
     const axis = match?.[1]?.toLowerCase();
@@ -6129,6 +6259,7 @@ const jsx_runtime_1 = require("react/jsx-runtime");
 const react_1 = __importDefault(require("react"));
 const client_1 = __importDefault(require("react-dom/client"));
 const App_1 = __importDefault(require("./App"));
+
 function errorText(reason) {
     if (reason instanceof Error)
         return `${reason.name}: ${reason.message}`;
@@ -6166,6 +6297,12 @@ catch (error) {
     showFatalError(error);
 }
 const isWebProtocol = location.protocol === 'https:' || location.protocol === 'http:';
+if (isWebProtocol && !document.querySelector('link[rel="manifest"]')) {
+    const manifest = document.createElement('link');
+    manifest.rel = 'manifest';
+    manifest.href = './manifest.webmanifest';
+    document.head.appendChild(manifest);
+}
 if ('serviceWorker' in navigator && true && isWebProtocol) {
     window.addEventListener('load', () => {
         navigator.serviceWorker.register('./sw.js').catch(() => undefined);
@@ -6188,6 +6325,11 @@ Object.defineProperty(exports, "__esModule", { value: true });
  */
 'use strict';var f=require("react"),k=Symbol.for("react.element"),l=Symbol.for("react.fragment"),m=Object.prototype.hasOwnProperty,n=f.__SECRET_INTERNALS_DO_NOT_USE_OR_YOU_WILL_BE_FIRED.ReactCurrentOwner,p={key:!0,ref:!0,__self:!0,__source:!0};
 function q(c,a,g){var b,d={},e=null,h=null;void 0!==g&&(e=""+g);void 0!==a.key&&(e=""+a.key);void 0!==a.ref&&(h=a.ref);for(b in a)m.call(a,b)&&!p.hasOwnProperty(b)&&(d[b]=a[b]);if(c&&c.defaultProps)for(b in a=c.defaultProps,a)void 0===d[b]&&(d[b]=a[b]);return{$typeof:k,type:c,key:e,ref:h,props:d,_owner:n.current}}exports.Fragment=l;exports.jsx=q;exports.jsxs=q;
+
+
+
+
+
 
 },
 "/node_modules/react/cjs/react.production.min.js": function(module, exports, require) {
@@ -6218,6 +6360,11 @@ exports.useCallback=function(a,b){return U.current.useCallback(a,b)};exports.use
 exports.useInsertionEffect=function(a,b){return U.current.useInsertionEffect(a,b)};exports.useLayoutEffect=function(a,b){return U.current.useLayoutEffect(a,b)};exports.useMemo=function(a,b){return U.current.useMemo(a,b)};exports.useReducer=function(a,b,e){return U.current.useReducer(a,b,e)};exports.useRef=function(a){return U.current.useRef(a)};exports.useState=function(a){return U.current.useState(a)};exports.useSyncExternalStore=function(a,b,e){return U.current.useSyncExternalStore(a,b,e)};
 exports.useTransition=function(){return U.current.useTransition()};exports.version="18.2.0";
 
+
+
+
+
+
 },
 "/node_modules/react/index.js": function(module, exports, require) {
 'use strict';
@@ -6228,6 +6375,11 @@ if (process.env.NODE_ENV === 'production') {
   module.exports = require('./cjs/react.development.js');
 }
 
+
+
+
+
+
 },
 "/node_modules/react/jsx-runtime.js": function(module, exports, require) {
 'use strict';
@@ -6237,6 +6389,11 @@ if (process.env.NODE_ENV === 'production') {
 } else {
   module.exports = require('./cjs/react-jsx-runtime.development.js');
 }
+
+
+
+
+
 
 },
 "/node_modules/react-dom/cjs/react-dom.production.min.js": function(module, exports, require) {
@@ -6564,6 +6721,11 @@ exports.hydrateRoot=function(a,b,c){if(!ol(a))throw Error(p(405));var d=null!=c&
 e);return new nl(b)};exports.render=function(a,b,c){if(!pl(b))throw Error(p(200));return sl(null,a,b,!1,c)};exports.unmountComponentAtNode=function(a){if(!pl(a))throw Error(p(40));return a._reactRootContainer?(Sk(function(){sl(null,null,a,!1,function(){a._reactRootContainer=null;a[uf]=null})}),!0):!1};exports.unstable_batchedUpdates=Rk;
 exports.unstable_renderSubtreeIntoContainer=function(a,b,c,d){if(!pl(c))throw Error(p(200));if(null==a||void 0===a._reactInternals)throw Error(p(38));return sl(a,b,c,!1,d)};exports.version="18.2.0-next-9e3b772b8-20220608";
 
+
+
+
+
+
 },
 "/node_modules/react-dom/client.js": function(module, exports, require) {
 'use strict';
@@ -6591,6 +6753,11 @@ if (process.env.NODE_ENV === 'production') {
     }
   };
 }
+
+
+
+
+
 
 },
 "/node_modules/react-dom/index.js": function(module, exports, require) {
@@ -6633,6 +6800,11 @@ if (process.env.NODE_ENV === 'production') {
   module.exports = require('./cjs/react-dom.development.js');
 }
 
+
+
+
+
+
 },
 "/node_modules/scheduler/cjs/scheduler.production.min.js": function(module, exports, require) {
 /**
@@ -6654,6 +6826,11 @@ exports.unstable_forceFrameRate=function(a){0>a||125<a?console.error("forceFrame
 exports.unstable_requestPaint=function(){};exports.unstable_runWithPriority=function(a,b){switch(a){case 1:case 2:case 3:case 4:case 5:break;default:a=3}var c=y;y=a;try{return b()}finally{y=c}};
 exports.unstable_scheduleCallback=function(a,b,c){var d=exports.unstable_now();"object"===typeof c&&null!==c?(c=c.delay,c="number"===typeof c&&0<c?d+c:d):c=d;switch(a){case 1:var e=-1;break;case 2:e=250;break;case 5:e=1073741823;break;case 4:e=1E4;break;default:e=5E3}e=c+e;a={id:u++,callback:b,priorityLevel:a,startTime:c,expirationTime:e,sortIndex:-1};c>d?(a.sortIndex=c,f(t,a),null===h(r)&&a===h(t)&&(B?(E(L),L=-1):B=!0,K(H,c-d))):(a.sortIndex=e,f(r,a),A||z||(A=!0,I(J)));return a};
 exports.unstable_shouldYield=M;exports.unstable_wrapCallback=function(a){var b=y;return function(){var c=y;y=b;try{return a.apply(this,arguments)}finally{y=c}}};
+
+
+
+
+
 
 },
 "/node_modules/scheduler/index.js": function(module, exports, require) {
