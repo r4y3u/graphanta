@@ -6,7 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="theme-color" content="#4f46e5" />
     <meta name="description" content="Graphanta - 数学的な思考と表現を支える図・グラフ作成アプリ" />
-    <title>Graphanta v0.6.0-alpha.2</title>
+    <title>Graphanta v0.6.0-alpha.4</title>
   <style>:root {
   font-family: Inter, "Noto Sans JP", "Yu Gothic UI", "Yu Gothic", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
   color: #20273b;
@@ -941,6 +941,21 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   .touch-delete-button { right: 8px; bottom: 8px; padding: 0 12px; }
 }
 
+@media (max-width: 560px) {
+  .object-window-row {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0;
+    padding-bottom: 4px;
+  }
+  .object-window-actions {
+    justify-content: flex-end;
+    gap: 1px;
+    padding: 0 5px 0 36px;
+  }
+  .object-window-actions button { width: 34px; height: 34px; }
+}
+
+
 @media (prefers-reduced-motion: reduce) {
   .touch-delete-button { transition: none; }
 }
@@ -1142,6 +1157,21 @@ button:not(:disabled) {
     transform: translateX(4px) scale(1.035);
   }
 }
+
+@media (max-width: 560px) {
+  .object-window-row {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0;
+    padding-bottom: 4px;
+  }
+  .object-window-actions {
+    justify-content: flex-end;
+    gap: 1px;
+    padding: 0 5px 0 36px;
+  }
+  .object-window-actions button { width: 34px; height: 34px; }
+}
+
 
 @media (prefers-reduced-motion: reduce) {
   .tool-button,
@@ -1388,7 +1418,7 @@ button:not(:disabled) {
   .function-domain-separator { display: none; }
 }
 
-/* v0.6.0-alpha.2: object manager feedback and locking */
+/* v0.6.0-alpha.4: object manager feedback, locking, and fine layer order */
 .menu-actions button.is-active {
   color: var(--primary-strong);
   background: #ece9ff;
@@ -1396,7 +1426,7 @@ button:not(:disabled) {
 .object-window {
   position: fixed;
   z-index: 72;
-  width: min(340px, calc(100vw - var(--safe-left) - var(--safe-right) - 16px));
+  width: min(390px, calc(100vw - var(--safe-left) - var(--safe-right) - 16px));
   max-height: min(66dvh, 600px);
   display: grid;
   grid-template-rows: 44px minmax(0, 1fr);
@@ -1507,8 +1537,8 @@ button:not(:disabled) {
 .object-window-actions button {
   display: grid;
   place-items: center;
-  width: 34px;
-  height: 34px;
+  width: 32px;
+  height: 32px;
   padding: 0;
   border: 1px solid transparent;
   border-radius: 8px;
@@ -1516,9 +1546,26 @@ button:not(:disabled) {
   background: transparent;
   cursor: pointer;
 }
-.object-window-actions button:hover { color: var(--primary-strong); border-color: #d8d4f5; background: #f3f1ff; }
+.object-window-actions button:hover:not(:disabled) { color: var(--primary-strong); border-color: #d8d4f5; background: #f3f1ff; }
+.object-window-actions button:disabled { opacity: .28; cursor: default; }
+.object-window-actions .layer-action { color: #59647b; }
 .object-window-actions button.is-active { color: var(--primary-strong); border-color: #d8d4f5; background: #eeebff; }
 .object-window-actions button.danger:hover { color: #a63a4c !important; border-color: #ebc6ce; background: #fff4f6; }
+
+
+@media (max-width: 560px) {
+  .object-window-row {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0;
+    padding-bottom: 4px;
+  }
+  .object-window-actions {
+    justify-content: flex-end;
+    gap: 1px;
+    padding: 0 5px 0 36px;
+  }
+  .object-window-actions button { width: 34px; height: 34px; }
+}
 
 
 @media (prefers-reduced-motion: reduce) {
@@ -1621,6 +1668,7 @@ const Toolbar_1 = require("./components/Toolbar");
 const function_plot_1 = require("./lib/function-plot");
 const geometry_1 = require("./lib/geometry");
 const math_1 = require("./lib/math");
+const layer_order_1 = require("./lib/layer-order");
 const StructuredMath_1 = require("./components/StructuredMath");
 const math_layout_1 = require("./lib/math-layout");
 const screenshot_1 = require("./lib/screenshot");
@@ -4500,6 +4548,22 @@ function App() {
     function objectListMeta(object) {
         return [object.groupId ? 'グループ' : OBJECT_TYPE_LABELS[object.type], object.locked ? '固定' : null, object.hidden ? '非表示' : null].filter(Boolean).join('・');
     }
+    function moveObjectLayer(id, direction) {
+        const ids = selectionIdsForObject(project.objects, id);
+        if (!ids.length || !(0, layer_order_1.objectUnitCanMove)(project.objects, id, direction))
+            return;
+        mutateProject((current) => ({ ...current, objects: (0, layer_order_1.reorderObjectUnit)(current.objects, id, direction) }));
+        setSelectedIds(ids);
+        setSelectedExpressionId(null);
+        const subject = ids.length > 1 ? 'グループを' : 'オブジェクトを';
+        const labels = {
+            front: '最前面へ',
+            forward: '1段前へ',
+            backward: '1段後ろへ',
+            back: '最背面へ',
+        };
+        setStatus(`${subject}${labels[direction]}移動しました`);
+    }
     function deleteObjectFromWindow(id) {
         const source = project.objects.find((object) => object.id === id);
         if (!source)
@@ -4584,7 +4648,11 @@ function App() {
                                         }, children: [(0, jsx_runtime_1.jsxs)("defs", { children: [(0, jsx_runtime_1.jsx)("pattern", { id: "pixel-small-grid", width: project.canvas.gridSize, height: project.canvas.gridSize, patternUnits: "userSpaceOnUse", children: (0, jsx_runtime_1.jsx)("path", { d: `M ${project.canvas.gridSize} 0 L 0 0 0 ${project.canvas.gridSize}`, fill: "none", stroke: "#e5e8f1", strokeWidth: 0.7, vectorEffect: "non-scaling-stroke" }) }), (0, jsx_runtime_1.jsxs)("pattern", { id: "pixel-grid", width: project.canvas.gridSize * 5, height: project.canvas.gridSize * 5, patternUnits: "userSpaceOnUse", children: [(0, jsx_runtime_1.jsx)("rect", { width: project.canvas.gridSize * 5, height: project.canvas.gridSize * 5, fill: "url(#pixel-small-grid)" }), (0, jsx_runtime_1.jsx)("path", { d: `M ${project.canvas.gridSize * 5} 0 L 0 0 0 ${project.canvas.gridSize * 5}`, fill: "none", stroke: "#cbd2e0", strokeWidth: 1.1, vectorEffect: "non-scaling-stroke" })] }), (0, jsx_runtime_1.jsx)("pattern", { id: "coordinate-grid", x: coordinateOrigin.x, y: coordinateOrigin.y, width: coordinateGridStep, height: coordinateGridStep, patternUnits: "userSpaceOnUse", children: (0, jsx_runtime_1.jsx)("path", { d: `M ${coordinateGridStep} 0 L 0 0 0 ${coordinateGridStep}`, fill: "none", stroke: "#dfe4f0", strokeWidth: 0.8, vectorEffect: "non-scaling-stroke" }) })] }), (0, jsx_runtime_1.jsx)("rect", { x: view.x, y: view.y, width: visibleWorldWidth, height: visibleWorldHeight, fill: project.canvas.background }), project.canvas.gridVisible && (0, jsx_runtime_1.jsx)("rect", { x: view.x, y: view.y, width: visibleWorldWidth, height: visibleWorldHeight, fill: project.canvas.axesVisible ? 'url(#coordinate-grid)' : 'url(#pixel-grid)' }), renderAxes(), renderFunctionPlots(), project.objects.map(renderObject), polygonPoints.length > 0 && (0, jsx_runtime_1.jsxs)("g", { "data-ui-only": "true", pointerEvents: "none", children: [(0, jsx_runtime_1.jsx)("polyline", { points: polygonPoints.map((point) => `${point.x},${point.y}`).join(' '), fill: "none", stroke: "#6d5dfc", strokeWidth: 2, strokeDasharray: "7 5", vectorEffect: "non-scaling-stroke" }), polygonPoints.map((point, index) => (0, jsx_runtime_1.jsx)("circle", { cx: point.x, cy: point.y, r: 5 / view.zoom, fill: "#6d5dfc" }, index))] }), zoomBox && (0, jsx_runtime_1.jsx)("rect", { "data-ui-only": "true", pointerEvents: "none", ...(0, geometry_1.normalizeRect)(zoomBox.start, zoomBox.end), fill: "rgba(86,72,223,.12)", stroke: "#5648df", strokeWidth: 1.5, strokeDasharray: "7 5", vectorEffect: "non-scaling-stroke" }), selectionBox && (0, jsx_runtime_1.jsx)("rect", { "data-ui-only": "true", pointerEvents: "none", ...(0, geometry_1.normalizeRect)(selectionBox.start, selectionBox.end), fill: "rgba(86,72,223,.09)", stroke: "#5648df", strokeWidth: 1.4, strokeDasharray: "6 4", vectorEffect: "non-scaling-stroke" }), snapIndicator && (0, jsx_runtime_1.jsxs)("g", { "data-ui-only": "true", pointerEvents: "none", className: `snap-indicator snap-${snapIndicator.kind ?? 'grid'}`, children: [(0, jsx_runtime_1.jsx)("circle", { cx: snapIndicator.point.x, cy: snapIndicator.point.y, r: 7 / view.zoom, fill: "rgba(255,255,255,.86)", stroke: "#ee7b2d", strokeWidth: 1.6, vectorEffect: "non-scaling-stroke" }), (0, jsx_runtime_1.jsx)("line", { x1: snapIndicator.point.x - 10 / view.zoom, y1: snapIndicator.point.y, x2: snapIndicator.point.x + 10 / view.zoom, y2: snapIndicator.point.y, stroke: "#ee7b2d", strokeWidth: 1.2, vectorEffect: "non-scaling-stroke" }), (0, jsx_runtime_1.jsx)("line", { x1: snapIndicator.point.x, y1: snapIndicator.point.y - 10 / view.zoom, x2: snapIndicator.point.x, y2: snapIndicator.point.y + 10 / view.zoom, stroke: "#ee7b2d", strokeWidth: 1.2, vectorEffect: "non-scaling-stroke" })] }), selectionOverlay()] }), contextToolMenu && (0, jsx_runtime_1.jsx)("div", { className: "plot-context-tools", style: { left: Math.min(contextToolMenu.clientX, window.innerWidth - contextToolMenu.tools.length * 48 - 18), top: Math.min(contextToolMenu.clientY, window.innerHeight - 62) }, role: "menu", "aria-label": "\u73FE\u5728\u306E\u30C4\u30FC\u30EB\u30B0\u30EB\u30FC\u30D7", children: contextToolMenu.tools.map((tool) => (0, jsx_runtime_1.jsxs)("button", { type: "button", role: "menuitem", className: activeTool === tool ? 'is-active' : '', title: defaults_1.TOOL_LABELS[tool], onClick: () => chooseTool(tool), children: [(0, jsx_runtime_1.jsx)(Icon_1.Icon, { name: tool, size: 21 }), (0, jsx_runtime_1.jsx)("span", { children: defaults_1.TOOL_LABELS[tool] })] }, tool)) })] }), (0, jsx_runtime_1.jsxs)("footer", { className: "status-bar", children: [(0, jsx_runtime_1.jsxs)("span", { title: `${defaults_1.TOOL_LABELS[activeTool]}　${status}`, children: [(0, jsx_runtime_1.jsx)("strong", { children: defaults_1.TOOL_LABELS[activeTool] }), "\u3000", status] }), (0, jsx_runtime_1.jsxs)("span", { className: `save-status save-${autosaveUi.state}`, title: autosaveLabel, children: [(0, jsx_runtime_1.jsx)("i", {}), project.objects.length, "\u8981\u7D20\u30FB", isDirty ? '未保存' : '保存済み', "\u30FB", autosaveLabel] })] })] }), settings.toolbarSide === 'right' && (0, jsx_runtime_1.jsx)(Toolbar_1.Toolbar, { tools: visibleTools, activeTool: activeTool, side: "right", onChange: chooseTool }), (0, jsx_runtime_1.jsxs)("aside", { className: "side-panels", children: [(0, jsx_runtime_1.jsxs)("section", { className: `side-panel tweak-panel ${panelCollapsed.tweak ? 'collapsed' : ''}`, children: [(0, jsx_runtime_1.jsxs)("div", { className: "panel-heading-wrap", onMouseLeave: () => setTweakHintOpen(false), children: [(0, jsx_runtime_1.jsxs)("button", { type: "button", className: "panel-heading", "aria-expanded": !panelCollapsed.tweak, title: panelCollapsed.tweak ? 'ツウィークを開く' : 'ツウィークを畳む', onClick: () => setPanelCollapsed((current) => ({ ...current, tweak: !current.tweak })), children: [(0, jsx_runtime_1.jsx)("span", { className: "panel-title", children: "\u30C4\u30A6\u30A3\u30FC\u30AF" }), (0, jsx_runtime_1.jsx)("span", { className: "panel-short", children: "T" }), (0, jsx_runtime_1.jsx)(Icon_1.Icon, { name: "chevron", size: 18 })] }), !panelCollapsed.tweak && (0, jsx_runtime_1.jsx)("button", { type: "button", className: `tweak-hint-button ${tweakHintOpen ? 'is-open' : ''}`, "aria-label": "\u3053\u306E\u30C4\u30FC\u30EB\u306E\u30D2\u30F3\u30C8", "aria-expanded": tweakHintOpen, title: "\u3053\u306E\u30C4\u30FC\u30EB\u306E\u30D2\u30F3\u30C8", onPointerDown: (event) => event.stopPropagation(), onClick: (event) => { event.stopPropagation(); setTweakHintOpen((open) => !open); }, children: (0, jsx_runtime_1.jsx)(Icon_1.Icon, { name: "hint", size: 16 }) }), tweakHintOpen && !panelCollapsed.tweak && (0, jsx_runtime_1.jsx)("div", { className: "tweak-hint-popover", role: "status", children: tweakHint })] }), (0, jsx_runtime_1.jsx)("div", { className: "panel-content tweak-content", "aria-hidden": panelCollapsed.tweak, children: (0, jsx_runtime_1.jsx)(TweakPanel, { project: project, activeTool: activeTool, selected: selectedObject, selectedObjects: selectedObjects, selectedExpression: selectedExpression, selectedFunctionPlot: selectedFunctionPlot, functionPlots: functionPlots, resolvedSelected: selectedResolvedObject, presets: presets, coordinateUnitPx: coordinateUnitPx, worldToCoordinate: worldToCoordinate, coordinateToWorld: coordinateToWorld, onPresetChange: (tool, patch) => setPresets((current) => ({ ...current, [tool]: { ...current[tool], ...patch } })), onCanvasChange: (patch) => mutateProject((current) => ({ ...current, canvas: { ...current.canvas, ...patch } })), onObjectChange: (updater) => selectedObject && updateObject(selectedObject.id, updater), onDelete: deleteSelected, onDuplicate: duplicateSelected, onGroup: groupSelected, onUngroup: ungroupSelected, onAlign: alignSelected, onArrange: arrangeSelected, onFinalizePolygon: finalizePolygon, polygonCount: polygonPoints.length, onCreateFromCoordinates: addObjectFromCoordinates, plottedFunctionCount: plottedFunctionCount, functionPlotErrorCount: functionPlotErrorCount, onSelectExpression: (id) => { setSelectedExpressionId(id); setSelectedIds([]); }, onAddExpression: addExpression, onUpdateExpression: updateExpression, onDeleteExpression: deleteExpression, onEditExpressionDetailed: (expression) => setModal({ kind: 'math', point: { x: 0, y: 0 }, value: expression.source, expressionId: expression.id }) }) })] }), (0, jsx_runtime_1.jsxs)("section", { className: `side-panel expression-panel ${panelCollapsed.expressions ? 'collapsed' : ''}`, children: [(0, jsx_runtime_1.jsx)("div", { className: "panel-heading-wrap", children: (0, jsx_runtime_1.jsxs)("button", { type: "button", className: "panel-heading", "aria-expanded": !panelCollapsed.expressions, title: panelCollapsed.expressions ? '変数ウィンドウを開く' : '変数ウィンドウを畳む', onClick: () => setPanelCollapsed((current) => ({ ...current, expressions: !current.expressions })), children: [(0, jsx_runtime_1.jsx)("span", { className: "panel-title", children: "f\u3000\u5909\u6570" }), (0, jsx_runtime_1.jsx)("span", { className: "panel-short", children: "f" }), (0, jsx_runtime_1.jsx)(Icon_1.Icon, { name: "chevron", size: 18 })] }) }), (0, jsx_runtime_1.jsx)("div", { className: "panel-content", "aria-hidden": panelCollapsed.expressions, children: (0, jsx_runtime_1.jsx)(VariablePanel, { project: project, onAddVariable: addVariable, onUpdateVariable: updateVariable, onDeleteVariable: (id) => mutateProject((current) => ({ ...current, variables: current.variables.filter((variable) => variable.id !== id) })), onStartSliderHistory: () => commitHistory(project) }) })] })] })] }), objectWindowOpen && !presentation && (0, jsx_runtime_1.jsxs)("section", { className: "object-window", style: { left: objectWindowPosition.x, top: objectWindowPosition.y }, "aria-label": "\u30AA\u30D6\u30B8\u30A7\u30AF\u30C8\u30A6\u30A3\u30F3\u30C9\u30A6", children: [(0, jsx_runtime_1.jsxs)("header", { className: "object-window-header", onPointerDown: beginObjectWindowDrag, onPointerMove: moveObjectWindowDrag, onPointerUp: endObjectWindowDrag, onPointerCancel: endObjectWindowDrag, children: [(0, jsx_runtime_1.jsxs)("span", { children: [(0, jsx_runtime_1.jsx)(Icon_1.Icon, { name: "objects", size: 18 }), (0, jsx_runtime_1.jsx)("strong", { children: "\u30AA\u30D6\u30B8\u30A7\u30AF\u30C8" }), (0, jsx_runtime_1.jsx)("small", { children: project.objects.length })] }), (0, jsx_runtime_1.jsx)("button", { type: "button", "aria-label": "\u30AA\u30D6\u30B8\u30A7\u30AF\u30C8\u30A6\u30A3\u30F3\u30C9\u30A6\u3092\u9589\u3058\u308B", title: "\u9589\u3058\u308B", onClick: () => setObjectWindowOpen(false), children: "\u00D7" })] }), (0, jsx_runtime_1.jsxs)("div", { className: "object-window-list", children: [project.objects.length === 0 && (0, jsx_runtime_1.jsx)("p", { className: "object-window-empty", children: "\u307E\u3060\u30AA\u30D6\u30B8\u30A7\u30AF\u30C8\u306F\u3042\u308A\u307E\u305B\u3093\u3002" }), project.objects.map((object, index) => ({ object, index })).reverse().map(({ object, index }) => {
                                 const selected = selectedIds.includes(object.id);
                                 const visibilityFeedback = objectVisibilityFeedback[object.id];
-                                return (0, jsx_runtime_1.jsxs)("div", { className: `object-window-row ${selected ? 'is-selected' : ''} ${object.hidden ? 'is-hidden' : ''} ${visibilityFeedback ? `visibility-${visibilityFeedback}` : ''}`, children: [(0, jsx_runtime_1.jsxs)("button", { type: "button", className: "object-window-select", "aria-pressed": selected, onClick: () => selectObjectFromWindow(object.id), title: objectListLabel(object, index), children: [(0, jsx_runtime_1.jsx)("span", { className: "object-window-swatch", style: { borderColor: object.stroke, background: object.fill === 'transparent' ? '#fff' : object.fill } }), (0, jsx_runtime_1.jsxs)("span", { className: "object-window-copy", children: [(0, jsx_runtime_1.jsx)("strong", { children: objectListLabel(object, index) }), (0, jsx_runtime_1.jsx)("small", { children: objectListMeta(object) })] })] }), (0, jsx_runtime_1.jsxs)("div", { className: "object-window-actions", children: [(0, jsx_runtime_1.jsx)("button", { type: "button", className: "visibility-action", "aria-label": object.hidden ? '表示する' : '非表示にする', title: object.hidden ? '表示する' : '非表示にする', onClick: () => toggleObjectVisibility(object.id), children: (0, jsx_runtime_1.jsx)(Icon_1.Icon, { name: object.hidden ? 'visibilityOff' : 'visibility', size: 17 }) }), (0, jsx_runtime_1.jsx)("button", { type: "button", className: object.locked ? 'is-active' : '', "aria-pressed": Boolean(object.locked), "aria-label": object.locked ? '固定を解除する' : '固定する', title: object.locked ? '固定を解除する' : '固定する', onClick: () => toggleObjectLock(object.id), children: (0, jsx_runtime_1.jsx)(Icon_1.Icon, { name: object.locked ? 'lock' : 'unlock', size: 17 }) }), (0, jsx_runtime_1.jsx)("button", { type: "button", className: "danger", "aria-label": "\u524A\u9664", title: "\u524A\u9664", onClick: () => deleteObjectFromWindow(object.id), children: (0, jsx_runtime_1.jsx)(Icon_1.Icon, { name: "delete", size: 17 }) })] })] }, object.id);
+                                const canFront = (0, layer_order_1.objectUnitCanMove)(project.objects, object.id, 'front');
+                                const canForward = (0, layer_order_1.objectUnitCanMove)(project.objects, object.id, 'forward');
+                                const canBackward = (0, layer_order_1.objectUnitCanMove)(project.objects, object.id, 'backward');
+                                const canBack = (0, layer_order_1.objectUnitCanMove)(project.objects, object.id, 'back');
+                                return (0, jsx_runtime_1.jsxs)("div", { "data-object-id": object.id, className: `object-window-row ${selected ? 'is-selected' : ''} ${object.hidden ? 'is-hidden' : ''} ${visibilityFeedback ? `visibility-${visibilityFeedback}` : ''}`, children: [(0, jsx_runtime_1.jsxs)("button", { type: "button", className: "object-window-select", "aria-pressed": selected, onClick: () => selectObjectFromWindow(object.id), title: objectListLabel(object, index), children: [(0, jsx_runtime_1.jsx)("span", { className: "object-window-swatch", style: { borderColor: object.stroke, background: object.fill === 'transparent' ? '#fff' : object.fill } }), (0, jsx_runtime_1.jsxs)("span", { className: "object-window-copy", children: [(0, jsx_runtime_1.jsx)("strong", { children: objectListLabel(object, index) }), (0, jsx_runtime_1.jsx)("small", { children: objectListMeta(object) })] })] }), (0, jsx_runtime_1.jsxs)("div", { className: "object-window-actions", children: [(0, jsx_runtime_1.jsx)("button", { type: "button", className: "layer-action", disabled: !canFront, "aria-label": "\u6700\u524D\u9762\u3078\u79FB\u52D5", title: "\u6700\u524D\u9762\u3078\u79FB\u52D5", onClick: () => moveObjectLayer(object.id, 'front'), children: (0, jsx_runtime_1.jsx)(Icon_1.Icon, { name: "bringFront", size: 17 }) }), (0, jsx_runtime_1.jsx)("button", { type: "button", className: "layer-action", disabled: !canForward, "aria-label": "1\u6BB5\u524D\u3078\u79FB\u52D5", title: "1\u6BB5\u524D\u3078\u79FB\u52D5", onClick: () => moveObjectLayer(object.id, 'forward'), children: (0, jsx_runtime_1.jsx)(Icon_1.Icon, { name: "bringForward", size: 17 }) }), (0, jsx_runtime_1.jsx)("button", { type: "button", className: "layer-action", disabled: !canBackward, "aria-label": "1\u6BB5\u5F8C\u308D\u3078\u79FB\u52D5", title: "1\u6BB5\u5F8C\u308D\u3078\u79FB\u52D5", onClick: () => moveObjectLayer(object.id, 'backward'), children: (0, jsx_runtime_1.jsx)(Icon_1.Icon, { name: "sendBackward", size: 17 }) }), (0, jsx_runtime_1.jsx)("button", { type: "button", className: "layer-action", disabled: !canBack, "aria-label": "\u6700\u80CC\u9762\u3078\u79FB\u52D5", title: "\u6700\u80CC\u9762\u3078\u79FB\u52D5", onClick: () => moveObjectLayer(object.id, 'back'), children: (0, jsx_runtime_1.jsx)(Icon_1.Icon, { name: "sendBack", size: 17 }) }), (0, jsx_runtime_1.jsx)("button", { type: "button", className: "visibility-action", "aria-label": object.hidden ? '表示する' : '非表示にする', title: object.hidden ? '表示する' : '非表示にする', onClick: () => toggleObjectVisibility(object.id), children: (0, jsx_runtime_1.jsx)(Icon_1.Icon, { name: object.hidden ? 'visibilityOff' : 'visibility', size: 17 }) }), (0, jsx_runtime_1.jsx)("button", { type: "button", className: object.locked ? 'is-active' : '', "aria-pressed": Boolean(object.locked), "aria-label": object.locked ? '固定を解除する' : '固定する', title: object.locked ? '固定を解除する' : '固定する', onClick: () => toggleObjectLock(object.id), children: (0, jsx_runtime_1.jsx)(Icon_1.Icon, { name: object.locked ? 'lock' : 'unlock', size: 17 }) }), (0, jsx_runtime_1.jsx)("button", { type: "button", className: "danger", "aria-label": "\u524A\u9664", title: "\u524A\u9664", onClick: () => deleteObjectFromWindow(object.id), children: (0, jsx_runtime_1.jsx)(Icon_1.Icon, { name: "delete", size: 17 }) })] })] }, object.id);
                             })] })] }), presentation && (0, jsx_runtime_1.jsx)("button", { className: "exit-presentation", type: "button", onClick: togglePresentation, children: "\u767A\u8868\u30E2\u30FC\u30C9\u3092\u7D42\u4E86" }), (0, jsx_runtime_1.jsx)("input", { ref: projectInputRef, type: "file", accept: ".json,.graphanta.json,application/json", hidden: true, onChange: loadProjectFile }), (0, jsx_runtime_1.jsx)("input", { ref: settingsInputRef, type: "file", accept: ".json,.graphanta-settings.json,application/json", hidden: true, onChange: loadSettingsFile }), modal?.kind === 'recovery' && selectedRecoveryRecord && (0, jsx_runtime_1.jsx)(Modal_1.Modal, { title: "\u524D\u56DE\u306E\u4F5C\u696D\u3092\u78BA\u8A8D", wide: true, onClose: skipAutosaveRecovery, children: (0, jsx_runtime_1.jsxs)("div", { className: "recovery-box recovery-box-list", children: [(0, jsx_runtime_1.jsx)("div", { className: "recovery-icon", children: (0, jsx_runtime_1.jsx)(Icon_1.Icon, { name: "history", size: 28 }) }), (0, jsx_runtime_1.jsxs)("div", { className: "recovery-summary", children: [(0, jsx_runtime_1.jsx)("h3", { children: selectedRecoveryRecord.project.title || '無題のプロジェクト' }), (0, jsx_runtime_1.jsx)("p", { children: "\u81EA\u52D5\u4FDD\u5B58\u3055\u308C\u305F\u4F5C\u696D\u3092\u9078\u3093\u3067\u5FA9\u5143\u3067\u304D\u307E\u3059\u3002\u9589\u3058\u3066\u3082\u5FA9\u65E7\u30C7\u30FC\u30BF\u306F\u524A\u9664\u3055\u308C\u307E\u305B\u3093\u3002" })] }), (0, jsx_runtime_1.jsx)("div", { className: "recovery-versions", role: "radiogroup", "aria-label": "\u5FA9\u5143\u3059\u308B\u81EA\u52D5\u4FDD\u5B58", children: modal.records.map((record) => {
                                 const source = record.source ?? 'current';
                                 const selected = source === modal.selectedSource;
@@ -4937,6 +5005,10 @@ function Icon({ name, size = 22 }) {
         case 'objects': return (0, jsx_runtime_1.jsxs)("svg", { ...common, children: [(0, jsx_runtime_1.jsx)("rect", { x: "4", y: "4", width: "9", height: "9", rx: "1.5" }), (0, jsx_runtime_1.jsx)("rect", { x: "11", y: "11", width: "9", height: "9", rx: "1.5" }), (0, jsx_runtime_1.jsx)("path", { d: "M8 16H5a1 1 0 01-1-1v-3M16 8V5a1 1 0 00-1-1h-3" })] });
         case 'lock': return (0, jsx_runtime_1.jsxs)("svg", { ...common, children: [(0, jsx_runtime_1.jsx)("rect", { x: "5", y: "10", width: "14", height: "10", rx: "2" }), (0, jsx_runtime_1.jsx)("path", { d: "M8 10V7a4 4 0 018 0v3" }), (0, jsx_runtime_1.jsx)("path", { d: "M12 14v2" })] });
         case 'unlock': return (0, jsx_runtime_1.jsxs)("svg", { ...common, children: [(0, jsx_runtime_1.jsx)("rect", { x: "5", y: "10", width: "14", height: "10", rx: "2" }), (0, jsx_runtime_1.jsx)("path", { d: "M8 10V7a4 4 0 017.4-2.1" }), (0, jsx_runtime_1.jsx)("path", { d: "M12 14v2" })] });
+        case 'bringFront': return (0, jsx_runtime_1.jsxs)("svg", { ...common, children: [(0, jsx_runtime_1.jsx)("rect", { x: "8", y: "8", width: "10", height: "10", rx: "1.5" }), (0, jsx_runtime_1.jsx)("path", { d: "M5 15H4a1 1 0 01-1-1V4a1 1 0 011-1h10a1 1 0 011 1v1" }), (0, jsx_runtime_1.jsx)("path", { d: "M19 5v5M16.5 7.5L19 5l2.5 2.5" })] });
+        case 'bringForward': return (0, jsx_runtime_1.jsxs)("svg", { ...common, children: [(0, jsx_runtime_1.jsx)("rect", { x: "8", y: "8", width: "10", height: "10", rx: "1.5" }), (0, jsx_runtime_1.jsx)("path", { d: "M5 15H4a1 1 0 01-1-1V4a1 1 0 011-1h10a1 1 0 011 1v1" }), (0, jsx_runtime_1.jsx)("path", { d: "M19 10V5M16.5 7.5L19 5l2.5 2.5" })] });
+        case 'sendBackward': return (0, jsx_runtime_1.jsxs)("svg", { ...common, children: [(0, jsx_runtime_1.jsx)("rect", { x: "6", y: "6", width: "10", height: "10", rx: "1.5" }), (0, jsx_runtime_1.jsx)("path", { d: "M9 19h10a1 1 0 001-1V8a1 1 0 00-1-1" }), (0, jsx_runtime_1.jsx)("path", { d: "M5 14v5M2.5 16.5L5 19l2.5-2.5" })] });
+        case 'sendBack': return (0, jsx_runtime_1.jsxs)("svg", { ...common, children: [(0, jsx_runtime_1.jsx)("rect", { x: "6", y: "6", width: "10", height: "10", rx: "1.5" }), (0, jsx_runtime_1.jsx)("path", { d: "M9 19h10a1 1 0 001-1V8a1 1 0 00-1-1" }), (0, jsx_runtime_1.jsx)("path", { d: "M5 19v-5M2.5 16.5L5 19l2.5-2.5" })] });
         case 'duplicate': return (0, jsx_runtime_1.jsxs)("svg", { ...common, children: [(0, jsx_runtime_1.jsx)("rect", { x: "8", y: "8", width: "11", height: "11", rx: "1" }), (0, jsx_runtime_1.jsx)("path", { d: "M16 8V5H5v11h3" })] });
         case 'chevron': return (0, jsx_runtime_1.jsx)("svg", { ...common, children: (0, jsx_runtime_1.jsx)("path", { d: "M8 10l4 4 4-4" }) });
         case 'hint': return (0, jsx_runtime_1.jsxs)("svg", { ...common, children: [(0, jsx_runtime_1.jsx)("path", { d: "M9 18h6M10 21h4" }), (0, jsx_runtime_1.jsx)("path", { d: "M8.2 14.8A6 6 0 1115.8 14.8c-.9.8-1.3 1.6-1.4 2.2h-4.8c-.1-.6-.5-1.4-1.4-2.2z" }), (0, jsx_runtime_1.jsx)("path", { d: "M12 2V1M4.9 4.9l-.7-.7M19.1 4.9l.7-.7M3 12H2M22 12h-1" })] });
@@ -5251,7 +5323,7 @@ exports.TOOL_LABELS = exports.BASIC_TOOLS = exports.ALL_TOOLS = exports.APP_VERS
 exports.createInitialProject = createInitialProject;
 exports.createDefaultSettings = createDefaultSettings;
 const geometry_1 = require("./lib/geometry");
-exports.APP_VERSION = '0.6.0-alpha.2';
+exports.APP_VERSION = '0.6.0-alpha.4';
 exports.ALL_TOOLS = [
     'select', 'pan', 'zoom', 'pen', 'line', 'arrow', 'rectangle', 'ellipse', 'polygon',
     'text', 'math', 'array', 'ball', 'person', 'bundle', 'segment', 'function',
@@ -5518,6 +5590,84 @@ function pointsToPath(points) {
 }
 function distance(a, b) {
     return Math.hypot(a.x - b.x, a.y - b.y);
+}
+},
+"/src/lib/layer-order.js": function(module, exports, require) {
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.reorderObjectUnit = reorderObjectUnit;
+exports.objectUnitAtEdge = objectUnitAtEdge;
+exports.objectUnitCanMove = objectUnitCanMove;
+function layerUnitIds(objects, objectId) {
+    const source = objects.find((object) => object.id === objectId);
+    if (!source)
+        return new Set();
+    if (!source.groupId)
+        return new Set([source.id]);
+    return new Set(objects.filter((object) => object.groupId === source.groupId).map((object) => object.id));
+}
+function adjacentUnitIds(objects, unitIds, direction) {
+    if (!unitIds.size)
+        return new Set();
+    if (direction === 'forward') {
+        const topIndex = objects.reduce((best, object, index) => unitIds.has(object.id) ? Math.max(best, index) : best, -1);
+        const adjacent = objects.slice(topIndex + 1).find((object) => !unitIds.has(object.id));
+        return adjacent ? layerUnitIds(objects, adjacent.id) : new Set();
+    }
+    const bottomIndex = objects.findIndex((object) => unitIds.has(object.id));
+    if (bottomIndex <= 0)
+        return new Set();
+    for (let index = bottomIndex - 1; index >= 0; index -= 1) {
+        if (!unitIds.has(objects[index].id))
+            return layerUnitIds(objects, objects[index].id);
+    }
+    return new Set();
+}
+function reorderObjectUnit(objects, objectId, direction) {
+    const ids = layerUnitIds(objects, objectId);
+    if (!ids.size)
+        return objects;
+    const unit = objects.filter((object) => ids.has(object.id));
+    const others = objects.filter((object) => !ids.has(object.id));
+    if (direction === 'front')
+        return [...others, ...unit];
+    if (direction === 'back')
+        return [...unit, ...others];
+    const adjacentIds = adjacentUnitIds(objects, ids, direction);
+    if (!adjacentIds.size)
+        return objects;
+    if (direction === 'forward') {
+        let insertionIndex = -1;
+        others.forEach((object, index) => {
+            if (adjacentIds.has(object.id))
+                insertionIndex = index + 1;
+        });
+        if (insertionIndex < 0)
+            return objects;
+        return [...others.slice(0, insertionIndex), ...unit, ...others.slice(insertionIndex)];
+    }
+    const insertionIndex = others.findIndex((object) => adjacentIds.has(object.id));
+    if (insertionIndex < 0)
+        return objects;
+    return [...others.slice(0, insertionIndex), ...unit, ...others.slice(insertionIndex)];
+}
+function objectUnitAtEdge(objects, objectId, direction) {
+    const ids = layerUnitIds(objects, objectId);
+    if (!ids.size)
+        return true;
+    const count = ids.size;
+    const edge = direction === 'front' ? objects.slice(-count) : objects.slice(0, count);
+    return edge.length === count && edge.every((object) => ids.has(object.id));
+}
+function objectUnitCanMove(objects, objectId, direction) {
+    const ids = layerUnitIds(objects, objectId);
+    if (!ids.size)
+        return false;
+    if (direction === 'front')
+        return !objectUnitAtEdge(objects, objectId, 'front');
+    if (direction === 'back')
+        return !objectUnitAtEdge(objects, objectId, 'back');
+    return adjacentUnitIds(objects, ids, direction).size > 0;
 }
 },
 "/src/lib/math-layout.js": function(module, exports, require) {
@@ -6619,6 +6769,10 @@ function q(c,a,g){var b,d={},e=null,h=null;void 0!==g&&(e=""+g);void 0!==a.key&&
 
 
 
+
+
+
+
 },
 "/node_modules/react/cjs/react.production.min.js": function(module, exports, require) {
 /**
@@ -6656,6 +6810,10 @@ exports.useTransition=function(){return U.current.useTransition()};exports.versi
 
 
 
+
+
+
+
 },
 "/node_modules/react/index.js": function(module, exports, require) {
 'use strict';
@@ -6674,6 +6832,10 @@ if (process.env.NODE_ENV === 'production') {
 
 
 
+
+
+
+
 },
 "/node_modules/react/jsx-runtime.js": function(module, exports, require) {
 'use strict';
@@ -6683,6 +6845,10 @@ if (process.env.NODE_ENV === 'production') {
 } else {
   module.exports = require('./cjs/react-jsx-runtime.development.js');
 }
+
+
+
+
 
 
 
@@ -7026,6 +7192,10 @@ exports.unstable_renderSubtreeIntoContainer=function(a,b,c,d){if(!pl(c))throw Er
 
 
 
+
+
+
+
 },
 "/node_modules/react-dom/client.js": function(module, exports, require) {
 'use strict';
@@ -7053,6 +7223,10 @@ if (process.env.NODE_ENV === 'production') {
     }
   };
 }
+
+
+
+
 
 
 
@@ -7111,6 +7285,10 @@ if (process.env.NODE_ENV === 'production') {
 
 
 
+
+
+
+
 },
 "/node_modules/scheduler/cjs/scheduler.production.min.js": function(module, exports, require) {
 /**
@@ -7132,6 +7310,10 @@ exports.unstable_forceFrameRate=function(a){0>a||125<a?console.error("forceFrame
 exports.unstable_requestPaint=function(){};exports.unstable_runWithPriority=function(a,b){switch(a){case 1:case 2:case 3:case 4:case 5:break;default:a=3}var c=y;y=a;try{return b()}finally{y=c}};
 exports.unstable_scheduleCallback=function(a,b,c){var d=exports.unstable_now();"object"===typeof c&&null!==c?(c=c.delay,c="number"===typeof c&&0<c?d+c:d):c=d;switch(a){case 1:var e=-1;break;case 2:e=250;break;case 5:e=1073741823;break;case 4:e=1E4;break;default:e=5E3}e=c+e;a={id:u++,callback:b,priorityLevel:a,startTime:c,expirationTime:e,sortIndex:-1};c>d?(a.sortIndex=c,f(t,a),null===h(r)&&a===h(t)&&(B?(E(L),L=-1):B=!0,K(H,c-d))):(a.sortIndex=e,f(r,a),A||z||(A=!0,I(J)));return a};
 exports.unstable_shouldYield=M;exports.unstable_wrapCallback=function(a){var b=y;return function(){var c=y;y=b;try{return a.apply(this,arguments)}finally{y=c}}};
+
+
+
+
 
 
 
